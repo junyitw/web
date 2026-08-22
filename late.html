@@ -6,14 +6,11 @@
     <title>均一國小部課後晚接記錄系統</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        /* 自訂淡入上浮動畫 */
         @keyframes fadeInUp {
             from { opacity: 0; transform: translateY(15px); }
             to { opacity: 1; transform: translateY(0); }
@@ -21,8 +18,6 @@
         .animate-fade-in-up {
             animation: fadeInUp 0.4s ease-out forwards;
         }
-        
-        /* 隱藏捲軸但保留捲動功能 */
         .hide-scrollbar::-webkit-scrollbar {
             display: none;
         }
@@ -38,7 +33,6 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // --- 輔助組件：Toast 提示 ---
         const Toast = ({ message, onClose }) => {
           useEffect(() => {
             const timer = setTimeout(onClose, 3000);
@@ -53,7 +47,6 @@
           );
         };
 
-        // --- 載入中遮罩 ---
         const LoadingOverlay = ({ message }) => (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex flex-col items-center justify-center z-50 animate-fade-in-up">
             <div className="bg-white px-8 py-6 rounded-2xl shadow-2xl flex items-center gap-4 border border-gray-100">
@@ -63,7 +56,6 @@
           </div>
         );
 
-        // --- SVG 圖示庫 ---
         const Icons = {
           Teacher: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>,
           Office: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>,
@@ -87,31 +79,25 @@
           const [formData, setFormData] = useState({ gradeClass: '', seatNumber: '', studentName: '', notes: '' });
           const [selectedStudent, setSelectedStudent] = useState(null);
           const [signature, setSignature] = useState('');
-          const [otherName, setOtherName] = useState(''); // 🔥 專門用來處理「其他」的自訂輸入
+          const [otherName, setOtherName] = useState('');
           const [editingStudent, setEditingStudent] = useState(null);
 
-          // 建立 DOM 參考以便按 Enter 時跳轉游標
           const notesRef = React.useRef(null);
-
           const today = getTodayDate();
           
-          // 🔥 篩選今日等待中的學生，並加入「依班級與座號」排序
           const waitingStudents = records
             .filter(r => r.status === 'waiting' && r.date === today)
             .sort((a, b) => {
-              // 1. 先比對班級
               const classA = String(a.gradeClass || '');
               const classB = String(b.gradeClass || '');
               if (classA !== classB) {
                 return classA.localeCompare(classB, 'zh-Hant', { numeric: true });
               }
-              // 2. 班級相同時，比對座號 (若資料中有 seatNumber 欄位)
               const seatA = Number(a.seatNumber || 0);
               const seatB = Number(b.seatNumber || 0);
               return seatA - seatB;
             });
 
-          // 查詢學生姓名函數
           const handleSeatNumberLookup = async () => {
             if (!formData.gradeClass || !formData.seatNumber) return;
             try {
@@ -120,7 +106,6 @@
               if (result.status === 'success' && result.data && result.data.name) {
                 setFormData(prev => ({ ...prev, studentName: result.data.name }));
                 showToast(`✅ 已帶出學生：${result.data.name}`);
-                // 查詢成功後自動將游標跳轉到備註欄位
                 if (notesRef.current) notesRef.current.focus();
               } else {
                 showToast('⚠️ 找不到對應的學生，請檢查班級與座號');
@@ -132,7 +117,6 @@
             }
           };
 
-          // 🔥 功能 1：支援在座號欄位按下 Enter 鍵直接觸發查詢並跳轉
           const handleKeyDown = (e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
@@ -244,7 +228,6 @@
                 )}
               </div>
 
-              {/* 簽退彈窗 */}
               {selectedStudent && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in-up">
                   <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl space-y-6">
@@ -264,7 +247,7 @@
                             type="button"
                             onClick={() => { 
                               setSignature(option); 
-                              if (option === '其他') setOtherName(''); // 選擇其他時清空自訂輸入
+                              if (option === '其他') setOtherName(''); 
                             }}
                             className={`py-3 px-4 rounded-xl font-bold border-2 transition-all text-center ${
                               signature === option 
@@ -278,8 +261,7 @@
                       </div>
                     </div>
 
-                    {/* 🔥 功能 2：選擇「其他」時顯示完全空白的輸入框 */}
-                    {signature === 'other' || signature === '其他' && (
+                    {(signature === '其他') && (
                       <div className="space-y-2">
                         <label className="block text-sm font-bold text-gray-700">請輸入其他接送者姓名</label>
                         <input
@@ -316,7 +298,6 @@
                 </div>
               )}
 
-              {/* 編輯記錄彈窗 */}
               {editingStudent && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in-up">
                   <form onSubmit={handleSaveEdit} className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
@@ -353,9 +334,6 @@
             </div>
           );
         };
-
-
-
 
         const AdminView = ({ records, onRefresh, onDelete, onUpdate }) => {
           const [startDate, setStartDate] = useState('2020-01-01');
@@ -574,6 +552,17 @@
             executeAction('update', updatedRecord, '✏️ 記錄已更新');
           };
 
+          // 🔥 處理行政管理端登入與密碼驗證
+          const handleAdminLogin = () => {
+            const pwd = prompt("請輸入行政管理端密碼：");
+            if (pwd === "je223301") {
+              setRole('admin');
+              showToast('✅ 成功登入行政管理端');
+            } else if (pwd !== null) {
+              showToast('❌ 密碼錯誤，無法進入');
+            }
+          };
+
           const roleConfig = {
             teacher: { title: '安親老師端', color: 'text-blue-700 bg-blue-100', type: 'operation' },
             office: { title: '辦公室端', color: 'text-purple-700 bg-purple-100', type: 'operation' },
@@ -614,7 +603,8 @@
                     
                     <div className="pt-2">
                       <p className="text-xs font-black text-gray-400 mb-3 uppercase tracking-widest pl-2">主任 / 系統管理</p>
-                      <button onClick={() => setRole('admin')} className="w-full flex items-center justify-center gap-3 bg-slate-800 hover:bg-slate-900 text-white font-bold py-5 rounded-2xl transition-all shadow-md">
+                      {/* 🔥 修改處：點擊時觸發 handleAdminLogin 進行密碼驗證 */}
+                      <button onClick={handleAdminLogin} className="w-full flex items-center justify-center gap-3 bg-slate-800 hover:bg-slate-900 text-white font-bold py-5 rounded-2xl transition-all shadow-md">
                         <Icons.Admin /> 行政管理端 (查看總表)
                       </button>
                     </div>
