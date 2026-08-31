@@ -5,18 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>均一國小部課後晚接記錄系統</title>
     
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 1. 舊版相容 Polyfills (ES6+, Fetch, Object.assign, Promise) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/core-js/3.30.2/minified.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fetch/3.6.2/fetch.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/es5-shim/4.6.7/es5-shim.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/es5-shim/4.6.7/es5-sham.min.js"></script>
+
+    <!-- 2. 改用相容性極佳的 Tailwind 2.2.19 靜態 CSS (取代 cdn.tailwindcss.com) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+    
+    <!-- 3. 改用 React 17 UMD (對 iOS 10.3 穩定度遠高於 React 18) -->
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/17.0.2/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/17.0.2/umd/react-dom.production.min.js"></script>
+    
+    <!-- 4. Babel 轉譯器 -->
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/6.26.0/babel.min.js"></script>
 
     <style>
         @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(15px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; transform: translateY(15px); -webkit-transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); -webkit-transform: translateY(0); }
         }
         .animate-fade-in-up {
             animation: fadeInUp 0.4s ease-out forwards;
+            -webkit-animation: fadeInUp 0.4s ease-out forwards;
         }
         .hide-scrollbar::-webkit-scrollbar {
             display: none;
@@ -25,139 +37,175 @@
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
+        /* 修正 iOS 10 對 CSS flex gap 支援不足的問題 */
+        .grid { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; }
     </style>
 </head>
-<body class="bg-slate-50 text-gray-800 font-sans antialiased">
+<body class="bg-gray-100 text-gray-800 font-sans">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        var useState = React.useState;
+        var useEffect = React.useEffect;
+        var useRef = React.useRef;
 
-        const Toast = ({ message, onClose }) => {
-          useEffect(() => {
-            const timer = setTimeout(onClose, 3000);
-            return () => clearTimeout(timer);
+        var Toast = function(props) {
+          var message = props.message;
+          var onClose = props.onClose;
+
+          useEffect(function() {
+            var timer = setTimeout(onClose, 3000);
+            return function() { clearTimeout(timer); };
           }, [onClose]);
 
           return (
-            <div className="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-4 rounded-xl shadow-2xl z-50 animate-fade-in-up flex items-center gap-3">
-              <span className="text-xl">🔔</span>
+            <div className="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-4 rounded-xl shadow-2xl z-50 animate-fade-in-up flex items-center">
+              <span className="text-xl mr-3">🔔</span>
               <span className="font-medium">{message}</span>
             </div>
           );
         };
 
-        const LoadingOverlay = ({ message }) => (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex flex-col items-center justify-center z-50 animate-fade-in-up">
-            <div className="bg-white px-8 py-6 rounded-2xl shadow-2xl flex items-center gap-4 border border-gray-100">
-              <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-              <span className="font-bold text-gray-700 text-lg">{message || "資料同步中，請稍候..."}</span>
+        var LoadingOverlay = function(props) {
+          var message = props.message;
+          return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex flex-col items-center justify-center z-50 animate-fade-in-up">
+              <div className="bg-white px-8 py-6 rounded-2xl shadow-2xl flex items-center border border-gray-100">
+                <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mr-4"></div>
+                <span className="font-bold text-gray-700 text-lg">{message || "資料同步中，請稍候..."}</span>
+              </div>
             </div>
-          </div>
-        );
-
-        const Icons = {
-          Teacher: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>,
-          Office: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>,
-          Guard: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
-          Admin: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><path d="M14 8h.01"/><path d="M14 12h.01"/><path d="M14 16h.01"/></svg>,
-          Check: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
-          Clock: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
-          LogOut: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
-          Calendar: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
-          User: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
-          Settings: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+          );
         };
 
-        const getTodayDate = () => new Date().toISOString().split('T')[0];
-        const getCurrentTime = () => {
-          const now = new Date();
-          return now.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false });
+        var Icons = {
+          Teacher: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>; },
+          Office: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>; },
+          Guard: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>; },
+          Admin: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><path d="M14 8h.01"/><path d="M14 12h.01"/><path d="M14 16h.01"/></svg>; },
+          Check: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>; },
+          Clock: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>; },
+          LogOut: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>; },
+          Calendar: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>; },
+          User: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>; },
+          Settings: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>; }
         };
 
-        const OperationalView = ({ currentRoleTitle, records, onAddRecord, onCheckout, onDelete, onUpdate, gasUrl, showToast }) => {
-          const [formData, setFormData] = useState({ gradeClass: '', seatNumber: '', studentName: '', notes: '' });
-          const [selectedStudent, setSelectedStudent] = useState(null);
-          const [signature, setSignature] = useState('');
-          const [otherName, setOtherName] = useState('');
-          const [editingStudent, setEditingStudent] = useState(null);
+        var getTodayDate = function() { return new Date().toISOString().split('T')[0]; };
+        var getCurrentTime = function() {
+          var now = new Date();
+          var hours = String(now.getHours()).padStart(2, '0');
+          var minutes = String(now.getMinutes()).padStart(2, '0');
+          return hours + ':' + minutes;
+        };
 
-          const notesRef = React.useRef(null);
-          const today = getTodayDate();
+        var OperationalView = function(props) {
+          var currentRoleTitle = props.currentRoleTitle;
+          var records = props.records;
+          var onAddRecord = props.onAddRecord;
+          var onCheckout = props.onCheckout;
+          var onDelete = props.onDelete;
+          var onUpdate = props.onUpdate;
+          var gasUrl = props.gasUrl;
+          var showToast = props.showToast;
+
+          var formDataState = useState({ gradeClass: '', seatNumber: '', studentName: '', notes: '' });
+          var formData = formDataState[0];
+          var setFormData = formDataState[1];
+
+          var selectedStudentState = useState(null);
+          var selectedStudent = selectedStudentState[0];
+          var setSelectedStudent = selectedStudentState[1];
+
+          var signatureState = useState('');
+          var signature = signatureState[0];
+          var setSignature = signatureState[1];
+
+          var otherNameState = useState('');
+          var otherName = otherNameState[0];
+          var setOtherName = otherNameState[1];
+
+          var editingStudentState = useState(null);
+          var editingStudent = editingStudentState[0];
+          var setEditingStudent = editingStudentState[1];
+
+          var notesRef = useRef(null);
+          var today = getTodayDate();
           
-          const waitingStudents = records
-            .filter(r => r.status === 'waiting' && r.date === today)
-            .sort((a, b) => {
-              const classA = String(a.gradeClass || '');
-              const classB = String(b.gradeClass || '');
+          var waitingStudents = records
+            .filter(function(r) { return r.status === 'waiting' && r.date === today; })
+            .sort(function(a, b) {
+              var classA = String(a.gradeClass || '');
+              var classB = String(b.gradeClass || '');
               if (classA !== classB) {
-                return classA.localeCompare(classB, 'zh-Hant', { numeric: true });
+                return classA.localeCompare(classB);
               }
-              const seatA = Number(a.seatNumber || 0);
-              const seatB = Number(b.seatNumber || 0);
+              var seatA = Number(a.seatNumber || 0);
+              var seatB = Number(b.seatNumber || 0);
               return seatA - seatB;
             });
 
-          const handleSeatNumberLookup = async () => {
+          var handleSeatNumberLookup = function() {
             if (!formData.gradeClass || !formData.seatNumber) return;
-            try {
-              const res = await fetch(`${gasUrl}?action=lookup&gradeClass=${formData.gradeClass}&seatNumber=${formData.seatNumber}`);
-              const result = await res.json();
-              if (result.status === 'success' && result.data && result.data.name) {
-                setFormData(prev => ({ ...prev, studentName: result.data.name }));
-                showToast(`✅ 已帶出學生：${result.data.name}`);
-                if (notesRef.current) notesRef.current.focus();
-              } else {
-                showToast('⚠️ 找不到對應的學生，請檢查班級與座號');
-                setFormData(prev => ({ ...prev, studentName: '' }));
-              }
-            } catch (err) {
-              console.error(err);
-              showToast('❌ 查詢學生失敗');
-            }
+            fetch(gasUrl + '?action=lookup&gradeClass=' + encodeURIComponent(formData.gradeClass) + '&seatNumber=' + encodeURIComponent(formData.seatNumber))
+              .then(function(res) { return res.json(); })
+              .then(function(result) {
+                if (result.status === 'success' && result.data && result.data.name) {
+                  setFormData(function(prev) { return Object.assign({}, prev, { studentName: result.data.name }); });
+                  showToast('✅ 已帶出學生：' + result.data.name);
+                  if (notesRef.current) notesRef.current.focus();
+                } else {
+                  showToast('⚠️ 找不到對應的學生，請檢查班級與座號');
+                  setFormData(function(prev) { return Object.assign({}, prev, { studentName: '' }); });
+                }
+              })
+              .catch(function(err) {
+                console.error(err);
+                showToast('❌ 查詢學生失敗');
+              });
           };
 
-          const handleKeyDown = (e) => {
+          var handleKeyDown = function(e) {
             if (e.key === 'Enter') {
               e.preventDefault();
               handleSeatNumberLookup();
             }
           };
 
-          const handleSubmit = (e) => {
+          var handleSubmit = function(e) {
             e.preventDefault();
             if (!formData.gradeClass || !formData.studentName) return;
             onAddRecord(formData, currentRoleTitle);
             setFormData({ gradeClass: '', seatNumber: '', studentName: '', notes: '' });
           };
 
-          const handleSaveEdit = (e) => {
+          var handleSaveEdit = function(e) {
             e.preventDefault();
             onUpdate(editingStudent);
             setEditingStudent(null);
           };
 
           return (
-            <div className="max-w-5xl mx-auto space-y-8 animate-fade-in-up pb-10">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <span className="bg-emerald-100 text-emerald-600 p-2 rounded-lg"><Icons.User /></span>
+            <div className="max-w-5xl mx-auto pb-10 space-y-8 animate-fade-in-up">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                  <span className="bg-green-100 text-green-600 p-2 rounded-lg mr-2"><Icons.User /></span>
                   新增晚接學生登記
                 </h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-sm font-semibold text-gray-600 mb-1">班級</label>
-                      <input type="text" placeholder="例: 301" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 outline-none" value={formData.gradeClass} onChange={e => setFormData({...formData, gradeClass: e.target.value})} required />
+                      <input type="text" placeholder="例: 301" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none focus:border-green-500" value={formData.gradeClass} onChange={function(e) { setFormData(Object.assign({}, formData, { gradeClass: e.target.value })); }} required />
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-600 mb-1">座號 (可按 Enter)</label>
                       <input 
                         type="text" 
                         placeholder="例: 5" 
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 outline-none" 
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none focus:border-green-500" 
                         value={formData.seatNumber} 
-                        onChange={e => setFormData({...formData, seatNumber: e.target.value})} 
+                        onChange={function(e) { setFormData(Object.assign({}, formData, { seatNumber: e.target.value })); }} 
                         onBlur={handleSeatNumberLookup} 
                         onKeyDown={handleKeyDown}
                         required 
@@ -173,123 +221,123 @@
                         type="text" 
                         ref={notesRef}
                         placeholder="轉交辦公室/原因" 
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 outline-none" 
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none focus:border-green-500" 
                         value={formData.notes} 
-                        onChange={e => setFormData({...formData, notes: e.target.value})} 
+                        onChange={function(e) { setFormData(Object.assign({}, formData, { notes: e.target.value })); }} 
                       />
                     </div>
                   </div>
-                  <button type="submit" className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-3 rounded-xl transition-all shadow-md">
+                  <button type="submit" className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold px-8 py-3 rounded-xl shadow-md">
                     送出登記 (自動記錄到辦公室時間)
                   </button>
                 </form>
               </div>
 
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                    <span className="bg-amber-100 text-amber-600 p-2 rounded-lg"><Icons.Guard /></span>
+                  <h2 className="text-xl font-bold text-gray-800 flex items-center">
+                    <span className="bg-yellow-100 text-yellow-600 p-2 rounded-lg mr-2"><Icons.Guard /></span>
                     今日待接回名單 ({waitingStudents.length} 人)
                   </h2>
-                  <span className="text-sm font-medium text-gray-500 bg-gray-100 px-3 py-1 rounded-full flex items-center gap-2">
-                    <Icons.Calendar /> {today}
+                  <span className="text-sm font-medium text-gray-500 bg-gray-100 px-3 py-1 rounded-full flex items-center">
+                    <Icons.Calendar /> <span className="ml-1">{today}</span>
                   </span>
                 </div>
 
                 {waitingStudents.length === 0 ? (
-                  <div className="p-12 text-center bg-slate-50 rounded-xl border-2 border-dashed border-gray-200">
+                  <div className="p-12 text-center bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
                     <p className="text-gray-500 font-medium">太棒了！目前沒有等待中的學生。</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-                    {waitingStudents.map(student => (
-                      <div key={student.id} className="bg-white p-5 rounded-2xl border-2 border-amber-200 shadow-sm flex flex-col justify-between relative group">
-                        <div>
-                          <div className="flex justify-between items-start mb-3">
-                            <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-lg text-sm font-black">{student.gradeClass}</span>
-                            <div className="flex items-center gap-1">
-                              <button onClick={() => setEditingStudent(student)} className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50" title="修改資料">✏️</button>
-                              <button onClick={() => { if(confirm(`確定要刪除 ${student.studentName} 的記錄嗎？`)) onDelete(student.id); }} className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50" title="刪除記錄">🗑️</button>
-                              <span className="text-xs font-bold text-gray-500 flex items-center gap-1 bg-white border px-2 py-1 rounded ml-1">
-                                <Icons.Clock /> {student.arrivalTime} 到達
-                              </span>
+                    {waitingStudents.map(function(student) {
+                      return (
+                        <div key={student.id} className="bg-white p-5 rounded-2xl border-2 border-yellow-200 shadow-sm flex flex-col justify-between mb-4">
+                          <div>
+                            <div className="flex justify-between items-start mb-3">
+                              <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-lg text-sm font-bold">{student.gradeClass}</span>
+                              <div className="flex items-center">
+                                <button onClick={function() { setEditingStudent(student); }} className="p-1 text-gray-400 hover:text-blue-600 mr-1" title="修改資料">✏️</button>
+                                <button onClick={function() { if(confirm('確定要刪除 ' + student.studentName + ' 的記錄嗎？')) onDelete(student.id); }} className="p-1 text-gray-400 hover:text-red-600 mr-2" title="刪除記錄">🗑️</button>
+                                <span className="text-xs font-bold text-gray-500 flex items-center bg-white border px-2 py-1 rounded">
+                                  <Icons.Clock /> <span className="ml-1">{student.arrivalTime} 到達</span>
+                                </span>
+                              </div>
                             </div>
+                            <h3 className="text-2xl font-bold text-gray-800">{student.studentName}</h3>
+                            {student.notes && <p className="text-sm text-yellow-800 mt-3 bg-yellow-50 px-3 py-2 rounded-lg font-medium">備註: {student.notes}</p>}
+                            <p className="text-xs text-gray-400 mt-2">登記單位: {student.createdBy}</p>
                           </div>
-                          <h3 className="text-2xl font-black text-gray-800">{student.studentName}</h3>
-                          {student.notes && <p className="text-sm text-amber-800 mt-3 bg-amber-50 px-3 py-2 rounded-lg font-medium">備註: {student.notes}</p>}
-                          <p className="text-xs text-gray-400 mt-2">登記單位: {student.createdBy}</p>
+                          <button onClick={function() { setSelectedStudent(student); setSignature('爸爸'); setOtherName(''); }} className="w-full mt-5 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-3 rounded-xl flex justify-center items-center">
+                            <Icons.Check /> <span className="ml-1">確認簽退</span>
+                          </button>
                         </div>
-                        <button onClick={() => { setSelectedStudent(student); setSignature('爸爸'); setOtherName(''); }} className="w-full mt-5 bg-amber-400 hover:bg-amber-500 text-amber-900 font-bold py-3 rounded-xl flex justify-center items-center gap-2">
-                          <Icons.Check /> 確認簽退
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
               {selectedStudent && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in-up">
+                <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50 animate-fade-in-up">
                   <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl space-y-6">
                     <div className="text-center">
-                      <h3 className="text-2xl font-black text-gray-800 mb-2">確認學生接回</h3>
+                      <h3 className="text-2xl font-bold text-gray-800 mb-2">確認學生接回</h3>
                       <p className="text-gray-500 font-medium">
-                        正在簽退：<span className="text-emerald-600 font-bold ml-1">{selectedStudent.gradeClass} - {selectedStudent.studentName}</span>
+                        正在簽退：<span className="text-green-600 font-bold ml-1">{selectedStudent.gradeClass} - {selectedStudent.studentName}</span>
                       </p>
                     </div>
 
                     <div className="space-y-3">
                       <label className="block text-sm font-bold text-gray-700">請選擇接送者身分</label>
                       <div className="grid grid-cols-2 gap-3">
-                        {['爸爸', '媽媽', '阿公阿嬤', '其他'].map((option) => (
-                          <button
-                            key={option}
-                            type="button"
-                            onClick={() => { 
-                              setSignature(option); 
-                              if (option === '其他') setOtherName(''); 
-                            }}
-                            className={`py-3 px-4 rounded-xl font-bold border-2 transition-all text-center ${
-                              signature === option 
-                                ? 'border-amber-500 bg-amber-50 text-amber-900 shadow-sm'
-                                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                            }`}
-                          >
-                            {option}
-                          </button>
-                        ))}
+                        {['爸爸', '媽媽', '阿公阿嬤', '其他'].map(function(option) {
+                          return (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={function() { 
+                                setSignature(option); 
+                                if (option === '其他') setOtherName(''); 
+                              }}
+                              className={'py-3 px-4 rounded-xl font-bold border-2 text-center ' + (signature === option ? 'border-yellow-500 bg-yellow-50 text-yellow-900 shadow-sm' : 'border-gray-200 bg-white text-gray-600')}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
-                    {(signature === '其他') && (
+                    {signature === '其他' && (
                       <div className="space-y-2">
                         <label className="block text-sm font-bold text-gray-700">請輸入其他接送者姓名</label>
                         <input
                           type="text"
                           autoFocus
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-amber-400 outline-none text-center font-bold"
+                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none text-center font-bold focus:border-yellow-400"
                           placeholder="請直接輸入姓名"
                           value={otherName}
-                          onChange={(e) => setOtherName(e.target.value)}
+                          onChange={function(e) { setOtherName(e.target.value); }}
                         />
                       </div>
                     )}
 
                     <div className="flex gap-3 pt-2">
-                      <button onClick={() => { setSelectedStudent(null); setSignature(''); setOtherName(''); }} className="flex-1 py-4 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition-colors">
+                      <button onClick={function() { setSelectedStudent(null); setSignature(''); setOtherName(''); }} className="flex-1 py-4 bg-gray-100 text-gray-600 font-bold rounded-xl mr-2">
                         取消
                       </button>
                       <button 
-                        onClick={() => {
-                          const finalSig = (signature === '其他') ? otherName : signature;
-                          if (!finalSig.trim()) return;
+                        onClick={function() {
+                          var finalSig = (signature === '其他') ? otherName : signature;
+                          if (!finalSig || !finalSig.trim()) return;
                           onCheckout(selectedStudent.id, finalSig);
                           setSelectedStudent(null);
                           setSignature('');
                           setOtherName('');
                         }} 
-                        disabled={(signature === '其他' && !otherName.trim())} 
-                        className="flex-1 py-4 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md"
+                        disabled={signature === '其他' && !otherName.trim()} 
+                        className="flex-1 py-4 bg-yellow-500 text-white font-bold rounded-xl shadow-md disabled:opacity-50"
                       >
                         確認送出
                       </button>
@@ -299,33 +347,33 @@
               )}
 
               {editingStudent && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in-up">
+                <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50 animate-fade-in-up">
                   <form onSubmit={handleSaveEdit} className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-                    <h3 className="text-2xl font-black text-center text-gray-800 mb-2">修改學生記錄</h3>
+                    <h3 className="text-2xl font-bold text-center text-gray-800 mb-2">修改學生記錄</h3>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">班級</label>
-                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingStudent.gradeClass} onChange={e => setEditingStudent({...editingStudent, gradeClass: e.target.value})} required />
+                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingStudent.gradeClass} onChange={function(e) { setEditingStudent(Object.assign({}, editingStudent, { gradeClass: e.target.value })); }} required />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">姓名</label>
-                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingStudent.studentName} onChange={e => setEditingStudent({...editingStudent, studentName: e.target.value})} required />
+                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingStudent.studentName} onChange={function(e) { setEditingStudent(Object.assign({}, editingStudent, { studentName: e.target.value })); }} required />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">到辦公室時間</label>
-                        <input type="text" placeholder="HH:mm" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none font-mono" value={editingStudent.arrivalTime || ''} onChange={e => setEditingStudent({...editingStudent, arrivalTime: e.target.value})} />
+                        <input type="text" placeholder="HH:mm" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none font-mono" value={editingStudent.arrivalTime || ''} onChange={function(e) { setEditingStudent(Object.assign({}, editingStudent, { arrivalTime: e.target.value })); }} />
                       </div>
                       <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">離開辦公室時間</label>
-                        <input type="text" placeholder="HH:mm" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none font-mono" value={editingStudent.departureTime || ''} onChange={e => setEditingStudent({...editingStudent, departureTime: e.target.value})} />
+                        <input type="text" placeholder="HH:mm" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none font-mono" value={editingStudent.departureTime || ''} onChange={function(e) { setEditingStudent(Object.assign({}, editingStudent, { departureTime: e.target.value })); }} />
                       </div>
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">備註</label>
-                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingStudent.notes} onChange={e => setEditingStudent({...editingStudent, notes: e.target.value})} />
+                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingStudent.notes} onChange={function(e) { setEditingStudent(Object.assign({}, editingStudent, { notes: e.target.value })); }} />
                     </div>
                     <div className="flex gap-3 pt-4">
-                      <button type="button" onClick={() => setEditingStudent(null)} className="flex-1 py-4 bg-gray-100 text-gray-600 font-bold rounded-xl">取消</button>
+                      <button type="button" onClick={function() { setEditingStudent(null); }} className="flex-1 py-4 bg-gray-100 text-gray-600 font-bold rounded-xl mr-2">取消</button>
                       <button type="submit" className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl">儲存變更</button>
                     </div>
                   </form>
@@ -335,56 +383,73 @@
           );
         };
 
-        const AdminView = ({ records, onRefresh, onDelete, onUpdate }) => {
-          const [startDate, setStartDate] = useState('2020-01-01');
-          const [endDate, setEndDate] = useState('2099-12-31');
-          const [showGasModal, setShowGasModal] = useState(false);
-          const [editingRecord, setEditingRecord] = useState(null);
-          const gasUrl = 'https://script.google.com/macros/s/AKfycbxidUn1nAfCp1FRffupl9MEeW7K7WeN1jhRAuBgm1gTlERsBtHFlV-O5rGrRNdibKfR/exec';
+        var AdminView = function(props) {
+          var records = props.records;
+          var onRefresh = props.onRefresh;
+          var onDelete = props.onDelete;
+          var onUpdate = props.onUpdate;
 
-          const filteredRecords = records.filter(r => r.date >= startDate && r.date <= endDate);
-          const waitingCount = filteredRecords.filter(r => r.status === 'waiting').length;
+          var startDateState = useState('2020-01-01');
+          var startDate = startDateState[0];
+          var setStartDate = startDateState[1];
 
-          const handleSaveEdit = (e) => {
+          var endDateState = useState('2099-12-31');
+          var endDate = endDateState[0];
+          var setEndDate = endDateState[1];
+
+          var showGasModalState = useState(false);
+          var showGasModal = showGasModalState[0];
+          var setShowGasModal = showGasModalState[1];
+
+          var editingRecordState = useState(null);
+          var editingRecord = editingRecordState[0];
+          var setEditingRecord = editingRecordState[1];
+
+          var gasUrl = 'https://script.google.com/macros/s/AKfycbxidUn1nAfCp1FRffupl9MEeW7K7WeN1jhRAuBgm1gTlERsBtHFlV-O5rGrRNdibKfR/exec';
+
+          var filteredRecords = records.filter(function(r) { return r.date >= startDate && r.date <= endDate; });
+          var waitingCount = filteredRecords.filter(function(r) { return r.status === 'waiting'; }).length;
+
+          var handleSaveEdit = function(e) {
             e.preventDefault();
             onUpdate(editingRecord);
             setEditingRecord(null);
           };
 
           return (
-            <div className="max-w-6xl mx-auto space-y-6 animate-fade-in-up pb-10">
-              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center justify-between gap-4">
-                <h2 className="text-xl font-black text-gray-800 flex items-center gap-3">
-                  <span className="bg-slate-800 text-white p-2 rounded-lg"><Icons.Admin /></span>
+            <div className="max-w-6xl mx-auto space-y-6 pb-10 animate-fade-in-up">
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4">
+                <h2 className="text-xl font-bold text-gray-800 flex items-center">
+                  <span className="bg-gray-800 text-white p-2 rounded-lg mr-2"><Icons.Admin /></span>
                   行政總覽管理
                 </h2>
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-gray-200">
+                  <div className="flex items-center bg-gray-50 px-4 py-2 rounded-xl border border-gray-200">
                     <Icons.Calendar />
-                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-transparent text-sm font-medium outline-none text-gray-700" />
-                    <span className="text-gray-400 font-bold">~</span>
-                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-transparent text-sm font-medium outline-none text-gray-700" />
+                    <input type="date" value={startDate} onChange={function(e) { setStartDate(e.target.value); }} className="bg-transparent text-sm font-medium outline-none text-gray-700 ml-2" />
+                    <span className="text-gray-400 font-bold mx-2">~</span>
+                    <input type="date" value={endDate} onChange={function(e) { setEndDate(e.target.value); }} className="bg-transparent text-sm font-medium outline-none text-gray-700" />
                   </div>
-                  <button onClick={() => setShowGasModal(true)} className="bg-white border-2 border-gray-200 hover:border-slate-800 hover:bg-slate-800 hover:text-white text-gray-700 px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 shadow-sm">
-                    <Icons.Settings /> GAS 連線狀態
+                  <button onClick={function() { setShowGasModal(true); }} className="bg-white border-2 border-gray-200 hover:bg-gray-800 hover:text-white text-gray-700 px-4 py-2 rounded-xl text-sm font-bold flex items-center shadow-sm">
+                    <Icons.Settings /> <span className="ml-1">GAS 連線狀態</span>
                   </button>
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="p-5 border-b border-gray-100 bg-slate-50 flex justify-between items-center">
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="p-5 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
                   <div>
                     <h2 className="font-bold text-gray-800 text-lg">115-1 均一國小部課後晚接記錄 (區間總表)</h2>
-                    <p className="text-xs text-gray-500 mt-1">目前顯示區間共 <strong className="text-slate-800">{filteredRecords.length}</strong> 筆資料，其中尚未接回 <strong className="text-amber-500">{waitingCount}</strong> 筆。</p>
+                    <p className="text-xs text-gray-500 mt-1">目前顯示區間共 <strong className="text-gray-800">{filteredRecords.length}</strong> 筆資料，其中尚未接回 <strong className="text-yellow-600">{waitingCount}</strong> 筆。</p>
                   </div>
-                  <button onClick={onRefresh} className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 text-gray-600" title="重新整理資料">
+                  <button onClick={onRefresh} className="p-2 bg-white border border-gray-200 rounded-lg text-gray-600" title="重新整理資料">
                     <Icons.Clock />
                   </button>
                 </div>
                 <div className="overflow-x-auto max-h-[600px] hide-scrollbar">
                   <table className="w-full text-left border-collapse whitespace-nowrap">
-                    <thead className="sticky top-0 bg-slate-50 z-10 shadow-sm">
-                      <tr className="text-gray-500 text-sm font-semibold tracking-wide border-b border-gray-200">
+                    <thead className="bg-gray-50 shadow-sm">
+                      <tr className="text-gray-500 text-sm font-semibold border-b border-gray-200">
                         <th className="px-6 py-4">日期</th>
                         <th className="px-6 py-4">狀態</th>
                         <th className="px-6 py-4">班級</th>
@@ -401,27 +466,29 @@
                       {filteredRecords.length === 0 ? (
                          <tr><td colSpan="10" className="p-12 text-center text-gray-400 font-medium">此日期區間無任何記錄。</td></tr>
                       ) : (
-                        filteredRecords.sort((a,b) => new Date(b.date) - new Date(a.date)).map(record => (
-                          <tr key={record.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-6 py-4 text-gray-500 font-medium">{record.date}</td>
-                            <td className="px-6 py-4">
-                              {record.status === 'waiting' 
-                                ? <span className="px-3 py-1 bg-amber-100 text-amber-700 text-xs rounded-full font-bold">等待中</span>
-                                : <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs rounded-full font-bold">已接回</span>}
-                            </td>
-                            <td className="px-6 py-4 font-black text-gray-800">{record.gradeClass}</td>
-                            <td className="px-6 py-4 font-black text-gray-800 text-lg">{record.studentName}</td>
-                            <td className="px-6 py-4 text-gray-400 text-sm font-medium">{record.createdBy}</td>
-                            <td className="px-6 py-4 font-mono font-medium text-slate-600">{record.arrivalTime}</td>
-                            <td className="px-6 py-4 font-mono font-bold text-slate-800">{record.departureTime || '-'}</td>
-                            <td className="px-6 py-4 font-medium text-slate-700">{record.signature || '-'}</td>
-                            <td className="px-6 py-4 text-gray-500 max-w-[200px] truncate" title={record.notes}>{record.notes || '-'}</td>
-                            <td className="px-6 py-4 space-x-2">
-                              <button onClick={() => setEditingRecord(record)} className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-bold transition-colors">編輯</button>
-                              <button onClick={() => { if(confirm(`確定要刪除 ${record.studentName} 的記錄嗎？`)) onDelete(record.id); }} className="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition-colors">刪除</button>
-                            </td>
-                          </tr>
-                        ))
+                        filteredRecords.sort(function(a, b) { return new Date(b.date) - new Date(a.date); }).map(function(record) {
+                          return (
+                            <tr key={record.id} className="hover:bg-gray-50">
+                              <td className="px-6 py-4 text-gray-500 font-medium">{record.date}</td>
+                              <td className="px-6 py-4">
+                                {record.status === 'waiting' 
+                                  ? <span className="px-3 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full font-bold">等待中</span>
+                                  : <span className="px-3 py-1 bg-green-100 text-green-700 text-xs rounded-full font-bold">已接回</span>}
+                              </td>
+                              <td className="px-6 py-4 font-bold text-gray-800">{record.gradeClass}</td>
+                              <td className="px-6 py-4 font-bold text-gray-800 text-lg">{record.studentName}</td>
+                              <td className="px-6 py-4 text-gray-400 text-sm font-medium">{record.createdBy}</td>
+                              <td className="px-6 py-4 font-mono font-medium text-gray-600">{record.arrivalTime}</td>
+                              <td className="px-6 py-4 font-mono font-bold text-gray-800">{record.departureTime || '-'}</td>
+                              <td className="px-6 py-4 font-medium text-gray-700">{record.signature || '-'}</td>
+                              <td className="px-6 py-4 text-gray-500 max-w-[200px] truncate" title={record.notes}>{record.notes || '-'}</td>
+                              <td className="px-6 py-4">
+                                <button onClick={function() { setEditingRecord(record); }} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold mr-2">編輯</button>
+                                <button onClick={function() { if(confirm('確定要刪除 ' + record.studentName + ' 的記錄嗎？')) onDelete(record.id); }} className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-bold">刪除</button>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -429,47 +496,47 @@
               </div>
 
               {showGasModal && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
                   <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl">
                     <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 mb-4 mx-auto">
                       <Icons.Settings />
                     </div>
-                    <h3 className="text-2xl font-black text-center text-gray-800 mb-4">GAS 連線狀態</h3>
-                    <p className="text-sm text-gray-500 mb-6 text-center leading-relaxed">系統已自動與 Google 試算表完成連線。</p>
+                    <h3 className="text-2xl font-bold text-center text-gray-800 mb-4">GAS 連線狀態</h3>
+                    <p className="text-sm text-gray-500 mb-6 text-center">系統已自動與 Google 試算表完成連線。</p>
                     <input type="text" readOnly className="w-full px-4 py-4 border-2 border-gray-200 rounded-xl outline-none font-mono text-sm text-gray-500 bg-gray-100 mb-6" value={gasUrl} />
-                    <button onClick={() => setShowGasModal(false)} className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors">確定</button>
+                    <button onClick={function() { setShowGasModal(false); }} className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700">確定</button>
                   </div>
                 </div>
               )}
 
               {editingRecord && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in-up">
+                <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50 animate-fade-in-up">
                   <form onSubmit={handleSaveEdit} className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-                    <h3 className="text-2xl font-black text-center text-gray-800 mb-2">管理端：修改記錄</h3>
+                    <h3 className="text-2xl font-bold text-center text-gray-800 mb-2">管理端：修改記錄</h3>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">班級</label>
-                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingRecord.gradeClass} onChange={e => setEditingRecord({...editingRecord, gradeClass: e.target.value})} required />
+                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingRecord.gradeClass} onChange={function(e) { setEditingRecord(Object.assign({}, editingRecord, { gradeClass: e.target.value })); }} required />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">姓名</label>
-                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingRecord.studentName} onChange={e => setEditingRecord({...editingRecord, studentName: e.target.value})} required />
+                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingRecord.studentName} onChange={function(e) { setEditingRecord(Object.assign({}, editingRecord, { studentName: e.target.value })); }} required />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">到辦公室時間</label>
-                        <input type="text" placeholder="HH:mm" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none font-mono" value={editingRecord.arrivalTime || ''} onChange={e => setEditingRecord({...editingRecord, arrivalTime: e.target.value})} />
+                        <input type="text" placeholder="HH:mm" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none font-mono" value={editingRecord.arrivalTime || ''} onChange={function(e) { setEditingRecord(Object.assign({}, editingRecord, { arrivalTime: e.target.value })); }} />
                       </div>
                       <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">離開辦公室時間</label>
-                        <input type="text" placeholder="HH:mm" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none font-mono" value={editingRecord.departureTime || ''} onChange={e => setEditingRecord({...editingRecord, departureTime: e.target.value})} />
+                        <input type="text" placeholder="HH:mm" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none font-mono" value={editingRecord.departureTime || ''} onChange={function(e) { setEditingRecord(Object.assign({}, editingRecord, { departureTime: e.target.value })); }} />
                       </div>
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">備註</label>
-                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingRecord.notes} onChange={e => setEditingRecord({...editingRecord, notes: e.target.value})} />
+                      <input type="text" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none" value={editingRecord.notes} onChange={function(e) { setEditingRecord(Object.assign({}, editingRecord, { notes: e.target.value })); }} />
                     </div>
                     <div className="flex gap-3 pt-4">
-                      <button type="button" onClick={() => setEditingRecord(null)} className="flex-1 py-4 bg-gray-100 text-gray-600 font-bold rounded-xl">取消</button>
+                      <button type="button" onClick={function() { setEditingRecord(null); }} className="flex-1 py-4 bg-gray-100 text-gray-600 font-bold rounded-xl mr-2">取消</button>
                       <button type="submit" className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl">儲存變更</button>
                     </div>
                   </form>
@@ -479,53 +546,66 @@
           );
         };
 
-        const App = () => {
-          const [role, setRole] = useState(null);
-          const [records, setRecords] = useState([]);
-          const [toast, setToast] = useState(null);
-          const [isLoading, setIsLoading] = useState(false);
+        var App = function() {
+          var roleState = useState(null);
+          var role = roleState[0];
+          var setRole = roleState[1];
 
-          const showToast = (msg) => { setToast(msg); };
-          const gasUrl = 'https://script.google.com/macros/s/AKfycbxidUn1nAfCp1FRffupl9MEeW7K7WeN1jhRAuBgm1gTlERsBtHFlV-O5rGrRNdibKfR/exec';
+          var recordsState = useState([]);
+          var records = recordsState[0];
+          var setRecords = recordsState[1];
 
-          const fetchRecordsFromGAS = async () => {
-            try {
-              const res = await fetch(gasUrl, { method: 'GET' });
-              const data = await res.json();
-              if (data.status === 'success' && Array.isArray(data.data)) {
-                setRecords(data.data.reverse());
-                showToast('✅ 試算表資料已同步更新');
-              }
-            } catch (err) {
-              console.warn("取得試算表失敗", err);
-            }
+          var toastState = useState(null);
+          var toast = toastState[0];
+          var setToast = toastState[1];
+
+          var isLoadingState = useState(false);
+          var isLoading = isLoadingState[0];
+          var setIsLoading = isLoadingState[1];
+
+          var showToast = function(msg) { setToast(msg); };
+          var gasUrl = 'https://script.google.com/macros/s/AKfycbxidUn1nAfCp1FRffupl9MEeW7K7WeN1jhRAuBgm1gTlERsBtHFlV-O5rGrRNdibKfR/exec';
+
+          var fetchRecordsFromGAS = function() {
+            fetch(gasUrl, { method: 'GET' })
+              .then(function(res) { return res.json(); })
+              .then(function(data) {
+                if (data.status === 'success' && Array.isArray(data.data)) {
+                  setRecords(data.data.reverse());
+                  showToast('✅ 試算表資料已同步更新');
+                }
+              })
+              .catch(function(err) {
+                console.warn("取得試算表失敗", err);
+              });
           };
 
-          useEffect(() => { fetchRecordsFromGAS(); }, []);
+          useEffect(function() { fetchRecordsFromGAS(); }, []);
 
-          const executeAction = async (actionType, payload, successMsg) => {
+          var executeAction = function(actionType, payload, successMsg) {
             setIsLoading(true);
-            try {
-              await fetch(gasUrl, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({ action: actionType, data: payload }),
-              });
+            fetch(gasUrl, {
+              method: 'POST',
+              mode: 'no-cors',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: actionType, data: payload }),
+            })
+            .then(function() {
               showToast(successMsg);
-              setTimeout(() => { 
+              setTimeout(function() { 
                 fetchRecordsFromGAS(); 
                 setIsLoading(false);
               }, 1500);
-            } catch (err) {
+            })
+            .catch(function(err) {
               console.error(err);
               showToast('❌ 與試算表連線失敗');
               setIsLoading(false);
-            }
+            });
           };
 
-          const handleAddRecord = (data, currentRoleTitle) => {
-            const newRecord = {
+          var handleAddRecord = function(data, currentRoleTitle) {
+            var newRecord = {
               id: Date.now(),
               date: getTodayDate(),
               gradeClass: data.gradeClass,
@@ -537,24 +617,23 @@
               status: 'waiting',
               createdBy: currentRoleTitle
             };
-            executeAction('add', newRecord, `✅ 已成功送出登記：${data.studentName}`);
+            executeAction('add', newRecord, '✅ 已成功送出登記：' + data.studentName);
           };
 
-          const handleCheckout = (id, parentSignature) => {
-            executeAction('checkout', { id, departureTime: getCurrentTime(), signature: parentSignature }, '✅ 簽退送出成功！');
+          var handleCheckout = function(id, parentSignature) {
+            executeAction('checkout', { id: id, departureTime: getCurrentTime(), signature: parentSignature }, '✅ 簽退送出成功！');
           };
 
-          const handleDelete = (id) => {
-            executeAction('delete', { id }, '🗑️ 記錄已刪除');
+          var handleDelete = function(id) {
+            executeAction('delete', { id: id }, '🗑️ 記錄已刪除');
           };
 
-          const handleUpdate = (updatedRecord) => {
+          var handleUpdate = function(updatedRecord) {
             executeAction('update', updatedRecord, '✏️ 記錄已更新');
           };
 
-          // 🔥 處理行政管理端登入與密碼驗證
-          const handleAdminLogin = () => {
-            const pwd = prompt("請輸入行政管理端密碼：");
+          var handleAdminLogin = function() {
+            var pwd = prompt("請輸入行政管理端密碼：");
             if (pwd === "je223301") {
               setRole('admin');
               showToast('✅ 成功登入行政管理端');
@@ -563,42 +642,41 @@
             }
           };
 
-          const roleConfig = {
+          var roleConfig = {
             teacher: { title: '安親老師端', color: 'text-blue-700 bg-blue-100', type: 'operation' },
             office: { title: '辦公室端', color: 'text-purple-700 bg-purple-100', type: 'operation' },
-            guard: { title: '警衛室端', color: 'text-amber-700 bg-amber-100', type: 'operation' },
-            admin: { title: '行政管理端', color: 'text-white bg-slate-800', type: 'admin' }
+            guard: { title: '警衛室端', color: 'text-yellow-700 bg-yellow-100', type: 'operation' },
+            admin: { title: '行政管理端', color: 'text-white bg-gray-800', type: 'admin' }
           };
 
           if (!role) {
             return (
-              <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
+              <div className="min-h-screen bg-gray-100 flex flex-col justify-center items-center p-4">
                 {isLoading && <LoadingOverlay message="正在與試算表同步資料..." />}
-                <div className="max-w-md w-full bg-white rounded-[2rem] shadow-xl p-8 space-y-8 animate-fade-in-up border border-slate-100">
+                <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 space-y-8 animate-fade-in-up border border-gray-200">
                   <div className="text-center pt-4">
                     <div className="mx-auto flex items-center justify-center mb-6">
-                      <img src="https://junyi.tw/sites/default/files/logo--junyi-header-2020--w300@2x.png" alt="Logo" className="max-h-16 object-contain" />
+                      <img src="https://junyi.tw/sites/default/files/logo--junyi-header-2020--w300@2x.png" alt="Logo" className="max-h-16" />
                     </div>
-                    <h1 className="text-3xl font-black text-gray-800 tracking-tight">均一國小部</h1>
-                    <h1 className="text-3xl font-black text-gray-800 tracking-tight">晚接記錄系統</h1>
+                    <h1 className="text-3xl font-bold text-gray-800 tracking-tight">均一國小部</h1>
+                    <h1 className="text-3xl font-bold text-gray-800 tracking-tight">晚接記錄系統</h1>
                     <p className="text-gray-400 font-medium mt-3">請選擇您的單位登入</p>
                   </div>
                   
                   <div className="space-y-6">
                     <div>
-                      <p className="text-xs font-black text-gray-400 mb-3 uppercase tracking-widest pl-2">一線操作人員 (新增/簽退)</p>
+                      <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-widest pl-2">一線操作人員 (新增/簽退)</p>
                       <div className="grid grid-cols-2 gap-3">
-                        <button onClick={() => setRole('guard')} className="col-span-2 h-28 flex flex-col items-center justify-center gap-2 bg-white hover:bg-amber-50 text-gray-600 hover:text-amber-600 font-bold rounded-2xl transition-all border-2 border-gray-100 hover:border-amber-300 shadow-sm">
-                          <span className="p-2.5 bg-amber-100 rounded-xl text-amber-700"><Icons.Guard /></span> 警衛室
+                        <button onClick={function() { setRole('teacher'); }} className="h-28 flex flex-col items-center justify-center bg-white hover:bg-blue-50 text-gray-600 font-bold rounded-2xl border-2 border-gray-200 shadow-sm">
+                          <span className="p-2.5 bg-blue-50 rounded-xl mb-1"><Icons.Teacher /></span> 警衛室
                         </button>
                       </div>
                     </div>
                     
                     <div className="pt-2">
-                      <p className="text-xs font-black text-gray-400 mb-3 uppercase tracking-widest pl-2">主任 / 系統管理</p>
-                      {/* 🔥 修改處：點擊時觸發 handleAdminLogin 進行密碼驗證 */}
-                      <button onClick={handleAdminLogin} className="w-full flex items-center justify-center gap-3 bg-slate-800 hover:bg-slate-900 text-white font-bold py-5 rounded-2xl transition-all shadow-md">
-                        <Icons.Admin /> 行政管理端 (查看總表)
+                      <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-widest pl-2">主任 / 系統管理</p>
+                      <button onClick={handleAdminLogin} className="w-full flex items-center justify-center bg-gray-800 hover:bg-gray-900 text-white font-bold py-5 rounded-2xl shadow-md">
+                        <Icons.Admin /> <span className="ml-2">行政管理端 (查看總表)</span>
                       </button>
                     </div>
                   </div>
@@ -610,20 +688,20 @@
           return (
             <div className="min-h-screen relative">
               {isLoading && <LoadingOverlay message="正在與試算表同步資料..." />}
-              <nav className="bg-white/80 backdrop-blur-md shadow-sm border-b border-gray-200 sticky top-0 z-40">
+              <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40">
                 <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
                   <div className="flex justify-between h-20 items-center">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 flex items-center justify-center">
-                        <img src="https://junyi.tw/sites/default/files/logo--junyi-header-2020--w300@2x.png" alt="均一 Logo" className="max-h-10 object-contain" />
+                    <div className="flex items-center">
+                      <div className="h-10 flex items-center justify-center mr-3">
+                        <img src="https://junyi.tw/sites/default/files/logo--junyi-header-2020--w300@2x.png" alt="均一 Logo" className="max-h-10" />
                       </div>
-                      <span className="font-black text-gray-800 text-xl hidden sm:block tracking-tight">國小部晚接記錄系統</span>
-                      <span className={`ml-2 px-4 py-1.5 rounded-full text-sm font-bold shadow-inner ${roleConfig[role].color}`}>
+                      <span className="font-bold text-gray-800 text-xl hidden sm:block tracking-tight">國小部晚接記錄系統</span>
+                      <span className={'ml-2 px-4 py-1.5 rounded-full text-sm font-bold ' + roleConfig[role].color}>
                         {roleConfig[role].title}
                       </span>
                     </div>
-                    <button onClick={() => { setRole(null); fetchRecordsFromGAS(); }} className="flex items-center gap-2 px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 rounded-xl font-bold text-sm transition-colors">
-                      <Icons.LogOut /> 回到上一頁
+                    <button onClick={function() { setRole(null); fetchRecordsFromGAS(); }} className="flex items-center px-5 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">
+                      <Icons.LogOut /> <span className="ml-1">回到上一頁</span>
                     </button>
                   </div>
                 </div>
@@ -638,13 +716,13 @@
                 )}
               </main>
 
-              {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+              {toast && <Toast message={toast} onClose={function() { setToast(null); }} />}
             </div>
           );
         };
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        // 使用 React 17 渲染語法相容舊版 Safari
+        ReactDOM.render(<App />, document.getElementById('root'));
     </script>
 </body>
 </html>
