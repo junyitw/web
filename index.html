@@ -180,7 +180,48 @@ import {
                     students: []
                 }));
             }
+// 匯出整個資料庫（包含所有學年、班級、學生與使用者）
+async exportDatabase() {
+    try {
+        // 1. 取得所有學年完整階層
+        const years = await this.getAllYears();
+        const fullYears = [];
+        
+        for (const y of years) {
+            const yData = { ...y, classes: [] };
+            // 讀取該學年下的各班詳細資料
+            for (const cls of (y.classes || [])) {
+                const fullClass = await this.getClassData(y.id, cls.id);
+                yData.classes.push(fullClass || cls);
+            }
+            fullYears.push(yData);
+        }
 
+        // 2. 取得使用者列表（若需要一同備份）
+        const usersSnap = await getDocs(collection(db, 'users'));
+        const users = usersSnap.docs.map(d => d.data());
+
+        const backupData = {
+            exportDate: new Date().toISOString(),
+            version: "2.0",
+            users: users,
+            years: fullYears
+        };
+
+        // 3. 轉成 Blob 觸發瀏覽器下載
+        const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `評量系統完整備份_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '')}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        return true;
+    } catch (e) {
+        console.error("匯出失敗:", e);
+        throw e;
+    }
+}
             async login(username, password) {
                 try {
                     const url = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/users/${username}`;
@@ -1409,6 +1450,20 @@ import {
                                     }} />
                                 </label>
                             )}
+<button 
+    onClick={async () => {
+        if (!confirm("確定要將目前全校所有學年的評量資料打包下載備份嗎？")) return;
+        try {
+            await cloudService.exportDatabase();
+            alert("✅ 備份檔已成功下載至您的電腦！");
+        } catch (err) {
+            alert("❌ 備份失敗：" + err.message);
+        }
+    }}
+    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md active:scale-95"
+>
+    <Cloud size={16} /> 匯出全校備份 JSON
+</button>
                             <button onClick={onLogout} className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-xl text-sm transition font-bold shadow">登出</button>
                         </div>
                     </nav>
