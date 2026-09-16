@@ -1428,44 +1428,49 @@ async exportDatabase() {
                             <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">{isReadOnly ? '觀看模式' : '主要管理帳號'}</span>
                         </div>
                         <div className="flex items-center gap-3">
-                            {!isReadOnly && (
-                                <label className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95">
-                                    <FileUp size={16} /> 匯入舊備份 JSON
-                                    <input type="file" accept=".json" className="hidden" onChange={async (e) => {
-                                        const file = e.target.files[0];
-                                        if (!file) return;
-                                        if (!confirm(`確定要將「${file.name}」完整匯入至 Firestore 嗎？`)) return;
-                                        try {
-                                            const text = await file.text();
-                                            const parsed = JSON.parse(text);
-                                            setLoading(true);
-                                            await cloudService.importLegacyDb(parsed);
-                                            alert("✅ 恭喜！舊資料已全數成功匯入 Firestore！");
-                                            const latestYId = parsed.years && parsed.years.length > 0 ? parsed.years[parsed.years.length - 1].id : null;
-                                            await loadData(latestYId);
-                                        } catch (err) {
-                                            alert("❌ 匯入失敗：" + err.message);
-                                            setLoading(false);
-                                        }
-                                    }} />
-                                </label>
-                            )}
-<button 
-    onClick={async () => {
-        if (!confirm("確定要將目前全校所有學年的評量資料打包下載備份嗎？")) return;
-        try {
-            await cloudService.exportDatabase();
-            alert("✅ 備份檔已成功下載至您的電腦！");
-        } catch (err) {
-            alert("❌ 備份失敗：" + err.message);
-        }
-    }}
-    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md active:scale-95"
->
-    <Cloud size={16} /> 匯出全校備份 JSON
-</button>
-                            <button onClick={onLogout} className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-xl text-sm transition font-bold shadow">登出</button>
-                        </div>
+    {/* 只有 ADMIN 角色才能看見「匯入」與「匯出」全校備份功能 */}
+    {userRole === UserRole.ADMIN && (
+        <>
+            <label className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95">
+                <FileUp size={16} /> 匯入舊備份 JSON
+                <input type="file" accept=".json" className="hidden" onChange={async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    if (!confirm(`確定要將「${file.name}」完整匯入至 Firestore 嗎？`)) return;
+                    try {
+                        const text = await file.text();
+                        const parsed = JSON.parse(text);
+                        setLoading(true);
+                        await cloudService.importLegacyDb(parsed);
+                        alert("✅ 恭喜！舊資料已全數成功匯入 Firestore！");
+                        const latestYId = parsed.years && parsed.years.length > 0 ? parsed.years[parsed.years.length - 1].id : null;
+                        await loadData(latestYId);
+                    } catch (err) {
+                        alert("❌ 匯入失敗：" + err.message);
+                        setLoading(false);
+                    }
+                }} />
+            </label>
+
+            <button 
+                onClick={async () => {
+                    if (!confirm("確定要將目前全校所有學年的評量資料打包下載備份嗎？")) return;
+                    try {
+                        await cloudService.exportDatabase();
+                        alert("✅ 備份檔已成功下載至您的電腦！");
+                    } catch (err) {
+                        alert("❌ 備份失敗：" + err.message);
+                    }
+                }}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md active:scale-95"
+            >
+                <Cloud size={16} /> 匯出全校備份 JSON
+            </button>
+        </>
+    )}
+
+    <button onClick={onLogout} className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-xl text-sm transition font-bold shadow">登出</button>
+</div>
                     </nav>
                     <main className="max-w-6xl mx-auto p-8">
                         <div className="mb-8 relative z-40">
