@@ -1908,120 +1908,128 @@ async exportDatabase() {
             );
         };
 
-        // 4.7 TeacherAutoLoader (完整溯源演算法版)
-        // 替換 TeacherAutoLoader 元件內部實作
-const TeacherAutoLoader = ({ user, onLogout }) => {
-    const [years, setYears] = useState([]);
-    const [selectedYearId, setSelectedYearId] = useState(null);
-    const [latestYearId, setLatestYearId] = useState(null);
+        // 4.7 TeacherAutoLoader (完整溯源演算法與有效學年過濾版)
+        const TeacherAutoLoader = ({ user, onLogout }) => {
+            const [years, setYears] = useState([]);
+            const [selectedYearId, setSelectedYearId] = useState(null);
+            const [latestYearId, setLatestYearId] = useState(null);
 
-    useEffect(() => { 
-        const initYears = async () => { 
-            try {
-                const list = await cloudService.getAllYears(); 
-                if (list && list.length > 0) {
-                    const latest = list[list.length - 1].id;
-                    setYears(list);
-                    setLatestYearId(latest);
-                    setSelectedYearId(latest);
+            useEffect(() => { 
+                const initYears = async () => { 
+                    try {
+                        const list = await cloudService.getAllYears(); 
+                        if (list && list.length > 0) {
+                            const latest = list[list.length - 1].id;
+                            setYears(list);
+                            setLatestYearId(latest);
+                            setSelectedYearId(latest);
+                        }
+                    } catch (err) {
+                        console.warn("背景讀取學年清單異常", err);
+                    }
+                }; 
+                initYears(); 
+            }, []);
+
+            // 核心溯源判斷函數
+            const getTracedClassId = (targetYearId) => {
+                if (!targetYearId || years.length === 0) return user.classId;
+                if (targetYearId === latestYearId) return user.classId;
+
+                const latestYear = years.find(y => y.id === latestYearId);
+                const targetYear = years.find(y => y.id === targetYearId);
+                if (!latestYear || !targetYear) return null;
+
+                const currentClass = (latestYear.classes || []).find(c => c.id === user.classId);
+                const latestIdx = years.findIndex(y => y.id === latestYearId);
+                const targetIdx = years.findIndex(y => y.id === targetYearId);
+                const yearDiff = latestIdx - targetIdx;
+
+                // 一年級往前推算代表尚未入學，直接判定無歷史班級
+                const match = user.classId.match(/^class(\d+)$/);
+                if (match) {
+                    const currentGradeNum = parseInt(match[1], 10);
+                    if (currentGradeNum <= 6 && (currentGradeNum - yearDiff) <= 0) {
+                        return null;
+                    }
                 }
-            } catch (err) {
-                console.warn("背景讀取學年清單異常", err);
-            }
-        }; 
-        initYears(); 
-    }, []);
 
-    // 核心溯源判斷函數
-    const getTracedClassId = (targetYearId) => {
-        if (!targetYearId || years.length === 0) return user.classId;
-        if (targetYearId === latestYearId) return user.classId;
-
-        const latestYear = years.find(y => y.id === latestYearId);
-        const targetYear = years.find(y => y.id === targetYearId);
-        if (!latestYear || !targetYear) return null;
-
-        const currentClass = (latestYear.classes || []).find(c => c.id === user.classId);
-        const latestIdx = years.findIndex(y => y.id === latestYearId);
-        const targetIdx = years.findIndex(y => y.id === targetYearId);
-        const yearDiff = latestIdx - targetIdx;
-
-        // 一年級往前推算代表尚未入學，直接判定無資料
-        const match = user.classId.match(/^class(\d+)$/);
-        if (match) {
-            const currentGradeNum = parseInt(match[1], 10);
-            if (currentGradeNum <= 6 && (currentGradeNum - yearDiff) <= 0) {
-                return null;
-            }
-        }
-
-        // 學生重疊度比對
-        if (!currentClass || (currentClass.students || []).length === 0) {
-            if (match) {
-                const targetGradeNum = parseInt(match[1], 10) - yearDiff;
-                return targetGradeNum > 0 ? `class${targetGradeNum}` : null;
-            }
-            return null;
-        }
-
-        const currentStudentNames = new Set((currentClass.students || []).map(s => s.name));
-        const currentStudentIds = new Set((currentClass.students || []).map(s => s.id));
-
-        let bestClassId = null;
-        let maxMatchCount = 0;
-
-        (targetYear.classes || []).forEach(cls => {
-            let matchCount = 0;
-            (cls.students || []).forEach(s => {
-                if (currentStudentIds.has(s.id) || currentStudentNames.has(s.name)) {
-                    matchCount++;
+                // 若本學期尚無學生名單，依據年級推算
+                if (!currentClass || (currentClass.students || []).length === 0) {
+                    if (match) {
+                        const targetGradeNum = parseInt(match[1], 10) - yearDiff;
+                        return targetGradeNum > 0 ? `class${targetGradeNum}` : null;
+                    }
+                    return null;
                 }
-            });
-            if (matchCount > maxMatchCount) {
-                maxMatchCount = matchCount;
-                bestClassId = cls.id;
+
+                // 依學生名單 ID 與姓名比對真實歷史班級
+                const currentStudentNames = new Set((currentClass.students || []).map(s => s.name));
+                const currentStudentIds = new Set((currentClass.students || []).map(s => s.id));
+
+                let bestClassId = null;
+                let maxMatchCount = 0;
+
+                (targetYear.classes || []).forEach(cls => {
+                    let matchCount = 0;
+                    (cls.students || []).forEach(s => {
+                        if (currentStudentIds.has(s.id) || currentStudentNames.has(s.name)) {
+                            matchCount++;
+                        }
+                    });
+                    if (matchCount > maxMatchCount) {
+                        maxMatchCount = matchCount;
+                        bestClassId = cls.id;
+                    }
+                });
+
+                return maxMatchCount > 0 ? bestClassId : null;
+            };
+
+            // 動態過濾出「該班級確實存在歷史資料」的學年度清單
+            const accessibleYears = useMemo(() => {
+                return years.filter(y => {
+                    if (y.id === latestYearId) return true;
+                    return getTracedClassId(y.id) !== null;
+                });
+            }, [years, latestYearId, user.classId]);
+
+            const targetClassId = useMemo(() => {
+                return getTracedClassId(selectedYearId);
+            }, [years, selectedYearId, latestYearId, user.classId]);
+
+            const handleSelectYear = (newYearId) => {
+                if (newYearId !== latestYearId) {
+                    const traced = getTracedClassId(newYearId);
+                    if (!traced) {
+                        const targetYearObj = years.find(y => y.id === newYearId);
+                        const yearLabel = targetYearObj ? targetYearObj.name : "該學年度";
+                        alert(`⚠️ 無法切換：本班學生在「${yearLabel}」尚未入學，查無歷史資料。`);
+                        return;
+                    }
+                }
+                setSelectedYearId(newYearId);
+            };
+
+            if (!selectedYearId || !latestYearId) {
+                return <div className="h-screen flex items-center justify-center font-bold text-slate-400 bg-slate-900">載入學年資料中...</div>;
             }
-        });
 
-        return maxMatchCount > 0 ? bestClassId : null;
-    };
+            const isHistoryReadOnly = selectedYearId !== latestYearId;
 
-    const targetClassId = useMemo(() => {
-        return getTracedClassId(selectedYearId);
-    }, [years, selectedYearId, latestYearId, user.classId]);
-
-    const handleSelectYear = (newYearId) => {
-        if (newYearId !== latestYearId) {
-            const traced = getTracedClassId(newYearId);
-            if (!traced) {
-                const targetYearObj = years.find(y => y.id === newYearId);
-                const yearLabel = targetYearObj ? targetYearObj.name : "該學年度";
-                alert(`⚠️ 無法切換：本班學生在「${yearLabel}」尚未入學，查無此班級的歷史資料。`);
-                return;
-            }
-        }
-        setSelectedYearId(newYearId);
-    };
-
-    if (!selectedYearId || !latestYearId) {
-        return <div className="h-screen flex items-center justify-center font-bold text-slate-400 bg-slate-900">載入學年資料中...</div>;
-    }
-
-    const isHistoryReadOnly = selectedYearId !== latestYearId;
-
-    return (
-        <ClassroomEditor 
-            yearId={selectedYearId} 
-            classId={targetClassId} 
-            userRole={UserRole.TEACHER} 
-            onLogout={onLogout} 
-            readOnly={isHistoryReadOnly} 
-            availableYears={years}
-            currentYearId={latestYearId}
-            onSelectYear={handleSelectYear}
-        />
-    );
-};
+            return (
+                <ClassroomEditor 
+                    yearId={selectedYearId} 
+                    classId={targetClassId} 
+                    userRole={UserRole.TEACHER} 
+                    onLogout={onLogout} 
+                    readOnly={isHistoryReadOnly} 
+                    availableYears={accessibleYears}
+                    currentYearId={latestYearId}
+                    onSelectYear={handleSelectYear}
+                />
+            );
+        };
 
         // 4.8 App Component
         const App = () => {
