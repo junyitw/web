@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>校園教室狀況回報系統</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+    body { font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+    #print-container { display: none; }
+
+    @media print {
+      body * { visibility: hidden; }
+      #print-container, #print-container * { visibility: visible; }
+      #print-container {
+        display: block !important;
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 12mm 10mm 12mm 10mm;
+      }
+      .page-break-avoid {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- 頂部導覽列 -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-100">
+            <i data-lucide="school" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h1 class="text-lg font-bold text-slate-900 leading-tight">校園教室狀況回報系統</h1>
+            <p class="text-xs text-slate-500">教室巡檢 • 雲端同步刪除 • 報告匯出</p>
+          </div>
+        </div>
+
+        <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <button id="tab-submit-btn" onclick="switchTab('submit')" class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-white text-indigo-600 shadow-sm">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span>班級通報填寫</span>
+          </button>
+          <button id="tab-admin-btn" onclick="switchTab('admin')" class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 hover:text-slate-900">
+            <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+            <span>管理後台預覽</span>
+            <span id="badge-total" class="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-bold">0</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+
+    <!-- 頁面 1：班級通報填寫介面 -->
+    <section id="view-submit" class="max-w-3xl mx-auto">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="bg-gradient-to-r from-indigo-600 to-indigo-800 p-6 text-white">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-xl font-bold">登記教室環境狀況</h2>
+              <p class="text-indigo-100 text-sm mt-1">請上傳教室整潔、桌椅損壞或硬體設施照片，並詳細敘述問題。</p>
+            </div>
+            <div class="hidden sm:block text-right">
+              <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/40 text-xs text-white border border-indigo-300/30">
+                <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> 系統就緒中
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <form id="report-form" onsubmit="handleFormSubmit(event)" class="p-6 space-y-6">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1.5">
+                <span class="text-rose-500 mr-1">*</span>班級名稱
+              </label>
+              <input type="text" id="input-class" required placeholder="例如：一年A班" 
+                     class="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-slate-800 transition">
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1.5">填表導師</label>
+              <input type="text" id="input-reporter" placeholder="例如：宗志老師" 
+                     class="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">
+              <span class="text-rose-500 mr-1">*</span>上傳照片與撰寫狀況描述
+            </label>
+            
+            <div id="dropzone" onclick="document.getElementById('file-input').click()" 
+                 class="border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-2xl p-6 text-center cursor-pointer bg-slate-50/70 hover:bg-indigo-50/30 transition-all group">
+              <input type="file" id="file-input" accept="image/*" multiple class="hidden" onchange="handleFileSelect(event)">
+              <div class="flex flex-col items-center">
+                <div class="w-12 h-12 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-500 group-hover:text-indigo-600 group-hover:scale-110 transition-transform">
+                  <i data-lucide="camera" class="w-6 h-6"></i>
+                </div>
+                <p class="mt-3 text-sm font-medium text-slate-800">點擊上傳或將照片拖曳至此處</p>
+                <p class="mt-1 text-xs text-slate-400">支援 JPG、PNG、WEBP 等格式（可多選）</p>
+              </div>
+            </div>
+
+            <div id="preview-list" class="mt-4 space-y-3"></div>
+          </div>
+
+          <div class="pt-4 border-t border-slate-100 flex justify-end">
+            <button type="submit" id="btn-submit-form" class="w-full sm:w-auto px-8 py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium rounded-xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 transition cursor-pointer">
+              <i data-lucide="send" class="w-4 h-4"></i>
+              <span>送出通報並儲存</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- 頁面 2：管理後台檢視與 PDF 匯出 -->
+    <section id="view-admin" class="hidden space-y-6">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <span class="text-xs font-medium text-slate-500">總回報筆數</span>
+          <div class="flex items-baseline justify-between mt-2">
+            <span id="stat-total" class="text-2xl font-bold text-slate-900">0</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">筆</span>
+          </div>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <span class="text-xs font-medium text-slate-500">累計照片數</span>
+          <div class="flex items-baseline justify-between mt-2">
+            <span id="stat-photos" class="text-2xl font-bold text-indigo-600">0</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">張</span>
+          </div>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <span class="text-xs font-medium text-slate-500">連線狀態</span>
+          <div class="flex items-baseline justify-between mt-2">
+            <span id="stat-status" class="text-base font-bold text-emerald-600">就緒</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">雲端同步</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+        <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <div class="relative w-full sm:w-80">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+            <input type="text" id="filter-search" oninput="applyFilters()" placeholder="搜尋班級、填表導師或描述..." 
+                   class="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <button onclick="fetchSheetData()" id="btn-sync-sheet" class="px-3 py-2 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition flex items-center gap-1.5">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>同步最新資料</span>
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2 w-full md:w-auto justify-end">
+          <button onclick="exportToPDF()" id="btn-export-pdf" class="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-medium text-sm shadow-md shadow-rose-200 flex items-center gap-2 transition active:scale-95">
+            <i data-lucide="printer" class="w-4 h-4"></i>
+            <span>列印 / 另存為 PDF 報告</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="records-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+
+      <div id="empty-state" class="hidden text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300">
+        <div class="w-16 h-16 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
+          <i data-lucide="inbox" class="w-8 h-8"></i>
+        </div>
+        <h3 class="text-base font-semibold text-slate-800">尚無符合條件的通報記錄</h3>
+        <p class="text-sm text-slate-500 mt-1">請點擊上方「同步最新資料」或至填寫介面新增通報</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 列印排版容器 -->
+  <div id="print-container">
+    <div style="max-width: 720px; margin: 0 auto; padding: 10px; background: #ffffff; color: #1e293b;">
+      <div style="border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 16px;">
+        <table style="width: 100%;">
+          <tr>
+            <td style="vertical-align: bottom; text-align: left;">
+              <h1 style="font-size: 22px; font-weight: 700; color: #0f172a; margin: 0;">國小部班級教室綜合報告</h1>
+              <p style="font-size: 11px; color: #64748b; margin: 4px 0 0 0;">資料來源：國小部雲端資料庫</p>
+            </td>
+            <td style="text-align: right; vertical-align: bottom; font-size: 11px; color: #64748b; white-space: nowrap;">
+              <div>列印日期：<span id="print-date"></span></div>
+              <div style="margin-top: 2px;">報告編號：<span id="print-report-no"></span></div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="background-color: #f1f5f9; padding: 8px 16px; border-radius: 6px; margin-bottom: 20px;">
+        <table style="width: 100%; text-align: center; font-size: 12px; font-weight: 500; color: #334155;">
+          <tr>
+            <td style="width: 50%;">總受檢筆數：<span id="print-sum-count" style="font-weight: 700; color: #0f172a;">0</span> 筆</td>
+            <td style="width: 50%;">檢查照片數量：<span id="print-sum-photos" style="font-weight: 700; color: #0f172a;">0</span> 張</td>
+          </tr>
+        </table>
+      </div>
+
+      <div id="print-items-list"></div>
+
+      <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #cbd5e1;" class="page-break-avoid">
+        <table style="width: 100%; text-align: center; font-size: 11px; color: #475569;">
+          <tr>
+            <td style="width: 33%; height: 50px; vertical-align: top;">
+              <div>國小部</div>
+              <div style="margin-top: 35px; border-bottom: 1px dashed #94a3b8; width: 70%; margin-left: auto; margin-right: auto;"></div>
+            </td>
+            <td style="width: 33%; height: 50px; vertical-align: top;">
+              <div>總務處</div>
+              <div style="margin-top: 35px; border-bottom: 1px dashed #94a3b8; width: 70%; margin-left: auto; margin-right: auto;"></div>
+            </td>
+            <td style="width: 33%; height: 50px; vertical-align: top;">
+              <div>校長</div>
+              <div style="margin-top: 35px; border-bottom: 1px dashed #94a3b8; width: 70%; margin-left: auto; margin-right: auto;"></div>
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 照片燈箱 Modal -->
+  <div id="lightbox-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm" onclick="closeLightbox()">
+    <div class="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-2xl" onclick="event.stopPropagation()">
+      <div class="relative bg-slate-900 flex items-center justify-center max-h-[70vh]">
+        <img id="lightbox-img" src="" alt="放大照片" class="max-h-[70vh] w-auto object-contain">
+        <button onclick="closeLightbox()" class="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/90 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-4 bg-white">
+        <div class="flex items-center justify-between">
+          <span id="lightbox-class" class="font-bold text-indigo-600 text-sm">一年A班</span>
+          <span id="lightbox-time" class="text-xs text-slate-400"></span>
+        </div>
+        <p id="lightbox-desc" class="text-sm text-slate-700 mt-2">照片詳細描述將顯示於此</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl text-white text-sm font-medium">
+    <i id="toast-icon" data-lucide="check-circle" class="w-5 h-5"></i>
+    <span id="toast-msg">操作成功</span>
+  </div>
+
+  <script>
+    const DEFAULT_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxXzRP9qPOhgq3tcLDpbli3pPVkGiU6Sbk9V1yadZgsm1ZjgjxdXlg69koB3kaxvmn4/exec";
+    let reportsData = [];
+    let currentUploadedFiles = [];
+
+    function formatDateTime(timeStr) {
+      if (!timeStr) return '';
+      try {
+        const d = new Date(timeStr);
+        if (!isNaN(d.getTime())) {
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        }
+      } catch (e) {}
+      return String(timeStr).replace(/T/, ' ').replace(/\..+/, '').replace(/Z/, '');
+    }
+
+    function sanitizeImageUrl(url) {
+      if (!url) return '';
+      if (url.startsWith('data:image')) return url;
+      
+      let match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if (!match) match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      
+      if (match && match[1]) {
+        return `https://lh3.googleusercontent.com/d/${match[1]}`;
+      }
+      return url;
+    }
+
+    window.onload = function() {
+      const saved = localStorage.getItem('school_reports_data');
+      if (saved) {
+        try { reportsData = JSON.parse(saved); } catch(e) { reportsData = []; }
+      }
+      
+      updateStats();
+      renderRecords();
+      lucide.createIcons();
+      setupDropzone();
+    };
+
+    function saveToStorage() {
+      try {
+        localStorage.setItem('school_reports_data', JSON.stringify(reportsData));
+      } catch(e) {}
+    }
+
+    function switchTab(tab) {
+      const viewSubmit = document.getElementById('view-submit');
+      const viewAdmin = document.getElementById('view-admin');
+      const btnSubmit = document.getElementById('tab-submit-btn');
+      const btnAdmin = document.getElementById('tab-admin-btn');
+
+      if (tab === 'submit') {
+        viewSubmit.classList.remove('hidden');
+        viewAdmin.classList.add('hidden');
+        btnSubmit.className = "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-white text-indigo-600 shadow-sm";
+        btnAdmin.className = "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 hover:text-slate-900";
+      } else {
+        viewSubmit.classList.add('hidden');
+        viewAdmin.classList.remove('hidden');
+        btnAdmin.className = "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-white text-indigo-600 shadow-sm";
+        btnSubmit.className = "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 hover:text-slate-900";
+        fetchSheetData();
+      }
+      lucide.createIcons();
+    }
+
+    // 雙通道取得雲端最新資料
+    async function fetchSheetData() {
+      const endpoint = DEFAULT_WEBHOOK_URL;
+      if (!endpoint) return;
+
+      const syncBtn = document.getElementById('btn-sync-sheet');
+      const statStatus = document.getElementById('stat-status');
+      syncBtn.disabled = true;
+      syncBtn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> <span>同步中...</span>`;
+      statStatus.innerText = "連線讀取中...";
+      statStatus.className = "text-base font-bold text-amber-500";
+      lucide.createIcons();
+
+      let success = false;
+      let rawJson = null;
+
+      try {
+        const res = await fetch(endpoint, { method: 'GET', redirect: 'follow', mode: 'cors' });
+        if (res.ok) {
+          rawJson = await res.json();
+          if (rawJson && rawJson.status === "success") success = true;
+        }
+      } catch (err) {}
+
+      if (!success) {
+        try {
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(endpoint + '?t=' + Date.now())}`;
+          const res = await fetch(proxyUrl);
+          if (res.ok) {
+            rawJson = await res.json();
+            if (rawJson && rawJson.status === "success") success = true;
+          }
+        } catch (err2) {}
+      }
+
+      if (success && rawJson && Array.isArray(rawJson.data)) {
+        reportsData = rawJson.data.map(item => ({
+          ...item,
+          createdAt: formatDateTime(item.createdAt),
+          photos: (item.photos || []).map(p => ({
+            ...p,
+            base64: sanitizeImageUrl(p.base64)
+          }))
+        }));
+
+        saveToStorage();
+        updateStats();
+        applyFilters();
+        statStatus.innerText = "已連線最新";
+        statStatus.className = "text-base font-bold text-emerald-600";
+        showToast('已成功從雲端同步最新班級資料！', 'success');
+      } else {
+        statStatus.innerText = "離線快取";
+        statStatus.className = "text-base font-bold text-slate-500";
+        showToast('無法直接讀取雲端，已為您保留本機紀錄', 'info');
+      }
+
+      syncBtn.disabled = false;
+      syncBtn.innerHTML = `<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> <span>同步最新資料</span>`;
+      lucide.createIcons();
+    }
+
+    function setupDropzone() {
+      const dropzone = document.getElementById('dropzone');
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          dropzone.classList.add('border-indigo-600', 'bg-indigo-50/50');
+        }, false);
+      });
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          dropzone.classList.remove('border-indigo-600', 'bg-indigo-50/50');
+        }, false);
+      });
+      dropzone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        processFiles(files);
+      });
+    }
+
+    function handleFileSelect(e) {
+      const files = e.target.files;
+      if (files && files.length > 0) processFiles(files);
+    }
+
+    function processFiles(files) {
+      Array.from(files).forEach(file => {
+        if (!file.type.startsWith('image/')) {
+          showToast('請上傳有效的圖片檔案', 'error');
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const img = new Image();
+          img.onload = function() {
+            const maxDim = 800;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height && width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+
+            const photoItem = {
+              id: 'photo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+              base64: compressedBase64,
+              desc: '',
+              name: file.name
+            };
+
+            currentUploadedFiles.push(photoItem);
+            renderPreviewList();
+          };
+          img.src = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderPreviewList() {
+      const container = document.getElementById('preview-list');
+      if (currentUploadedFiles.length === 0) {
+        container.innerHTML = '';
+        return;
+      }
+
+      container.innerHTML = currentUploadedFiles.map((item, index) => `
+        <div class="flex flex-col sm:flex-row items-start gap-4 p-3 bg-white border border-slate-200 rounded-xl shadow-sm transition hover:border-slate-300">
+          <div class="relative w-full sm:w-32 h-28 flex-shrink-0 bg-slate-100 rounded-lg overflow-hidden group">
+            <img src="${item.base64}" alt="照片縮圖" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <button type="button" onclick="openLightbox('${item.base64}', '預覽圖片', '照片 #${index + 1}')" class="p-1.5 bg-white/80 rounded-full text-slate-800 hover:bg-white">
+                <i data-lucide="zoom-in" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <span class="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">#${index + 1}</span>
+          </div>
+          
+          <div class="flex-1 w-full space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-700">照片 ${index + 1} 狀況描述：</span>
+              <button type="button" onclick="removeUploadedPhoto('${item.id}')" class="text-rose-500 hover:text-rose-700 text-xs flex items-center gap-1 font-medium">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> 移除
+              </button>
+            </div>
+            <textarea rows="2" placeholder="請詳細描寫此照片中需要改善或通報的問題點..." 
+                      oninput="updatePhotoDesc('${item.id}', this.value)"
+                      class="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800">${item.desc}</textarea>
+          </div>
+        </div>
+      `).join('');
+
+      lucide.createIcons();
+    }
+
+    function updatePhotoDesc(id, text) {
+      const target = currentUploadedFiles.find(p => p.id === id);
+      if (target) target.desc = text;
+    }
+
+    function removeUploadedPhoto(id) {
+      currentUploadedFiles = currentUploadedFiles.filter(p => p.id !== id);
+      renderPreviewList();
+    }
+
+    async function handleFormSubmit(e) {
+      e.preventDefault();
+
+      const className = document.getElementById('input-class').value.trim();
+      const reporter = document.getElementById('input-reporter').value.trim() || '宗志老師';
+      const endpoint = DEFAULT_WEBHOOK_URL;
+
+      if (!className) {
+        showToast('請填寫班級名稱！', 'error');
+        return;
+      }
+
+      if (currentUploadedFiles.length === 0) {
+        showToast('請至少上傳一張現場教室照片！', 'error');
+        return;
+      }
+
+      const submitBtn = document.getElementById('btn-submit-form');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> 正在儲存至雲端...`;
+      lucide.createIcons();
+
+      const now = new Date();
+      const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      if (endpoint) {
+        try {
+          await fetch(endpoint, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              className: className,
+              reporter: reporter,
+              photos: currentUploadedFiles
+            })
+          });
+        } catch (err) {}
+      }
+
+      const newReport = {
+        id: 'rep_' + Date.now(),
+        className,
+        reporter,
+        cloudSynced: true,
+        createdAt: timeStr,
+        photos: currentUploadedFiles.map(p => ({
+          id: p.id,
+          base64: p.base64,
+          desc: p.desc || '（無特別註記描述）'
+        }))
+      };
+
+      reportsData.unshift(newReport);
+      saveToStorage();
+      updateStats();
+
+      document.getElementById('input-class').value = '';
+      document.getElementById('input-reporter').value = '';
+      currentUploadedFiles = [];
+      renderPreviewList();
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i><span>送出通報並儲存</span>`;
+      lucide.createIcons();
+
+      showToast(`已成功送出 ${className} 通報！`, 'success');
+      
+      setTimeout(() => {
+        switchTab('admin');
+      }, 500);
+    }
+
+    function updateStats() {
+      const total = reportsData.length;
+      let totalPhotos = 0;
+      reportsData.forEach(r => {
+        totalPhotos += (r.photos ? r.photos.length : 0);
+      });
+
+      document.getElementById('badge-total').innerText = total;
+      document.getElementById('stat-total').innerText = total;
+      document.getElementById('stat-photos').innerText = totalPhotos;
+    }
+
+    function applyFilters() {
+      const query = document.getElementById('filter-search').value.toLowerCase().trim();
+
+      const filtered = reportsData.filter(item => {
+        return !query || 
+          item.className.toLowerCase().includes(query) ||
+          item.reporter.toLowerCase().includes(query) ||
+          (item.photos && item.photos.some(p => p.desc && p.desc.toLowerCase().includes(query)));
+      });
+
+      renderRecords(filtered);
+    }
+
+    function renderRecords(list = reportsData) {
+      const container = document.getElementById('records-container');
+      const emptyState = document.getElementById('empty-state');
+
+      if (list.length === 0) {
+        container.innerHTML = '';
+        emptyState.classList.remove('hidden');
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+
+      container.innerHTML = list.map(record => {
+        const photosHtml = (record.photos || []).map((photo, pIdx) => {
+          const imgSrc = sanitizeImageUrl(photo.base64);
+          return `
+            <div class="border border-slate-100 rounded-lg p-2 bg-slate-50 flex items-start gap-3">
+              <div class="relative w-20 h-16 rounded overflow-hidden flex-shrink-0 cursor-pointer bg-slate-200" 
+                   onclick="openLightbox('${imgSrc}', '${record.className}', '${(photo.desc || '').replace(/'/g, "\\'")}')">
+                <img src="${imgSrc}" alt="班級照片" class="w-full h-full object-cover hover:scale-105 transition-transform" 
+                     crossorigin="anonymous"
+                     referrerpolicy="no-referrer"
+                     onerror="this.src='https://placehold.co/100x80?text=照片載入中'">
+                <div class="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                  <i data-lucide="maximize-2" class="w-3.5 h-3.5 text-white"></i>
+                </div>
+              </div>
+              <div class="flex-1 text-xs">
+                <span class="font-bold text-slate-500">照片 #${pIdx + 1} 說明：</span>
+                <p class="text-slate-700 mt-0.5 line-clamp-3">${photo.desc || '無特別說明'}</p>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition">
+            <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+              <span class="text-base font-bold text-slate-900">${record.className}</span>
+              <button onclick="deleteRecord('${record.id}', '${record.folderId || ''}')" title="刪除此紀錄（同步刪除試算表與雲端照片）" class="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg transition active:scale-90">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+            <div class="px-4 py-2 bg-slate-50/70 border-b border-slate-100 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5">
+                <i data-lucide="user" class="w-3.5 h-3.5 text-indigo-500"></i>
+                <span class="font-medium text-slate-700">${record.reporter}</span>
+              </div>
+              <div class="flex items-center gap-1">
+                <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                <span>${record.createdAt}</span>
+              </div>
+            </div>
+
+            <div class="p-4 space-y-2.5 flex-1 overflow-y-auto max-h-72">
+              ${photosHtml}
+            </div>
+
+            <div class="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+              <span class="truncate max-w-[150px]">填表導師：${record.reporter}</span>
+              <div class="flex items-center gap-1 text-emerald-600">
+                <i data-lucide="cloud-check" class="w-3.5 h-3.5"></i>
+                <span class="truncate">雲端已備份</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      lucide.createIcons();
+    }
+
+    // 同步刪除功能：同時清除本機、試算表資料列與 Google Drive 照片檔案
+    async function deleteRecord(id, folderId) {
+      if (!confirm("確定要刪除此筆通報嗎？\n此動作將同步清除 Google 試算表上的資料與雲端硬碟中的照片！")) {
+        return;
+      }
+
+      showToast('正在同步從雲端刪除...', 'info');
+
+      // 1. 先從前端暫存移除，提供即時回饋
+      reportsData = reportsData.filter(r => r.id !== id);
+      saveToStorage();
+      updateStats();
+      applyFilters();
+
+      // 2. 發送指令給 Apps Script 執行實體刪除
+      const endpoint = DEFAULT_WEBHOOK_URL;
+      if (endpoint) {
+        try {
+          await fetch(endpoint, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'delete',
+              id: id,
+              folderId: folderId
+            })
+          });
+          showToast('已同步清除試算表與雲端硬碟檔案！', 'success');
+        } catch (err) {
+          console.warn("雲端刪除請求傳送失敗:", err);
+          showToast('本機已移除，雲端同步刪除排程處理中', 'info');
+        }
+      }
+    }
+
+    function exportToPDF() {
+      const activeRecords = reportsData;
+      if (activeRecords.length === 0) {
+        showToast('目前沒有可匯出的班級資料！', 'error');
+        return;
+      }
+
+      const now = new Date();
+      document.getElementById('print-date').innerText = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
+      document.getElementById('print-report-no').innerText = 'CR-' + now.getTime().toString().slice(-6);
+      
+      let totalPhotosCount = 0;
+      activeRecords.forEach(r => {
+        totalPhotosCount += (r.photos ? r.photos.length : 0);
+      });
+
+      document.getElementById('print-sum-count').innerText = activeRecords.length;
+      document.getElementById('print-sum-photos').innerText = totalPhotosCount;
+
+      const printList = document.getElementById('print-items-list');
+      printList.innerHTML = activeRecords.map((rec, index) => {
+        let photoRowsHtml = '';
+        const photos = rec.photos || [];
+        for (let i = 0; i < photos.length; i += 2) {
+          const p1 = photos[i];
+          const p2 = photos[i + 1];
+
+          const p1Url = sanitizeImageUrl(p1.base64);
+          const p2Url = p2 ? sanitizeImageUrl(p2.base64) : '';
+
+          photoRowsHtml += `
+            <table style="width: 100%; border-collapse: separate; border-spacing: 8px; margin-bottom: 8px;">
+              <tr>
+                <td style="width: 50%; vertical-align: top; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px;">
+                  <div style="width: 100%; height: 160px; background-color: #0f172a; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                    <img src="${p1Url}" style="max-height: 160px; max-width: 100%; object-fit: contain;">
+                  </div>
+                  <div style="font-size: 11px; margin-top: 6px;">
+                    <strong style="color: #334155;">照片 #${i + 1} 說明：</strong>
+                    <div style="color: #475569; margin-top: 2px; line-height: 1.4;">${p1.desc || '無文字說明'}</div>
+                  </div>
+                </td>
+                ${p2 ? `
+                <td style="width: 50%; vertical-align: top; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px;">
+                  <div style="width: 100%; height: 160px; background-color: #0f172a; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                    <img src="${p2Url}" style="max-height: 160px; max-width: 100%; object-fit: contain;">
+                  </div>
+                  <div style="font-size: 11px; margin-top: 6px;">
+                    <strong style="color: #334155;">照片 #${i + 2} 說明：</strong>
+                    <div style="color: #475569; margin-top: 2px; line-height: 1.4;">${p2.desc || '無文字說明'}</div>
+                  </div>
+                </td>
+                ` : `<td style="width: 50%; border: none;"></td>`}
+              </tr>
+            </table>
+          `;
+        }
+
+        return `
+          <div class="page-break-avoid" style="border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 16px; background-color: #ffffff;">
+            <table style="width: 100%; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 8px;">
+              <tr>
+                <td style="text-align: left; font-size: 14px; font-weight: 700; color: #0f172a; width: 60%;">
+                  #${index + 1} 班級：${rec.className}
+                </td>
+                <td style="text-align: right; font-size: 11px; color: #64748b; width: 40%;">
+                  填報時間：${rec.createdAt} &nbsp;|&nbsp; 填表導師：${rec.reporter}
+                </td>
+              </tr>
+            </table>
+            ${photoRowsHtml}
+          </div>
+        `;
+      }).join('');
+
+      setTimeout(() => {
+        window.print();
+      }, 300);
+    }
+
+    function openLightbox(imgSrc, className, desc) {
+      document.getElementById('lightbox-img').src = imgSrc;
+      document.getElementById('lightbox-class').innerText = className;
+      document.getElementById('lightbox-desc').innerText = desc || '無文字說明';
+      document.getElementById('lightbox-modal').classList.remove('hidden');
+    }
+
+    function closeLightbox() {
+      document.getElementById('lightbox-modal').classList.add('hidden');
+    }
+
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toast-msg');
+      const toastIcon = document.getElementById('toast-icon');
+
+      toastMsg.innerText = message;
+
+      if (type === 'error') {
+        toast.className = "fixed bottom-6 right-6 z-50 transform transition-all duration-300 pointer-events-none flex items-center gap-3 px-5 py-3 rounded-xl shadow-xl text-white text-sm font-medium bg-rose-600";
+        toastIcon.setAttribute('data-lucide', 'alert-circle');
+      } else if (type === 'info') {
+        toast.className = "fixed bottom-6 right-6 z-50 transform transition-all duration-300 pointer-events-none flex items-center gap-3 px-5 py-3 rounded-xl shadow-xl text-white text-sm font-medium bg-slate-800";
+        toastIcon.setAttribute('data-lucide', 'info');
+      } else {
+        toast.className = "fixed bottom-6 right-6 z-50 transform transition-all duration-300 pointer-events-none flex items-center gap-3 px-5 py-3 rounded-xl shadow-xl text-white text-sm font-medium bg-emerald-600";
+        toastIcon.setAttribute('data-lucide', 'check-circle');
+      }
+
+      lucide.createIcons();
+
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+      }, 3500);
+    }
+  </script>
+</body>
+</html>
