@@ -30,6 +30,25 @@
         size: A4 portrait;
         margin: 12mm 10mm 12mm 10mm;
       }
+
+      /* 允許班級大容器隨多照片正常跨頁 */
+      .class-report-card {
+        page-break-inside: auto;
+        break-inside: auto;
+      }
+
+      /* 禁止截斷單列照片，若頁面空間不足整列順移至下一頁 */
+      .print-photo-row {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+
+      /* 班級表頭避免單獨落在頁面最末端 */
+      .print-header-row {
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+
       .page-break-avoid {
         page-break-inside: avoid;
         break-inside: avoid;
@@ -48,7 +67,7 @@
             <i data-lucide="school" class="w-6 h-6"></i>
           </div>
           <div>
-            <h1 class="text-lg font-bold text-slate-900 leading-tight">國小部教室狀況回報系統</h1>
+            <h1 class="text-lg font-bold text-slate-900 leading-tight">校均一國小部狀況回報系統</h1>
             <p class="text-xs text-slate-500">教室回報 • 雲端同步 • 報告匯出</p>
           </div>
         </div>
@@ -695,13 +714,11 @@
 
       showToast('正在同步從雲端刪除...', 'info');
 
-      // 1. 先從前端暫存移除，提供即時回饋
       reportsData = reportsData.filter(r => r.id !== id);
       saveToStorage();
       updateStats();
       applyFilters();
 
-      // 2. 發送指令給 Apps Script 執行實體刪除
       const endpoint = DEFAULT_WEBHOOK_URL;
       if (endpoint) {
         try {
@@ -723,6 +740,7 @@
       }
     }
 
+    // 列印 / PDF 匯出排版邏輯（已升級避免切圖與平順換頁）
     function exportToPDF() {
       const activeRecords = reportsData;
       if (activeRecords.length === 0) {
@@ -746,6 +764,7 @@
       printList.innerHTML = activeRecords.map((rec, index) => {
         let photoRowsHtml = '';
         const photos = rec.photos || [];
+        
         for (let i = 0; i < photos.length; i += 2) {
           const p1 = photos[i];
           const p2 = photos[i + 1];
@@ -753,46 +772,51 @@
           const p1Url = sanitizeImageUrl(p1.base64);
           const p2Url = p2 ? sanitizeImageUrl(p2.base64) : '';
 
+          // 每組照片列設定獨立防切斷規則
           photoRowsHtml += `
-            <table style="width: 100%; border-collapse: separate; border-spacing: 8px; margin-bottom: 8px;">
-              <tr>
-                <td style="width: 50%; vertical-align: top; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px;">
-                  <div style="width: 100%; height: 160px; background-color: #0f172a; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                    <img src="${p1Url}" style="max-height: 160px; max-width: 100%; object-fit: contain;">
-                  </div>
-                  <div style="font-size: 11px; margin-top: 6px;">
-                    <strong style="color: #334155;">照片 #${i + 1} 說明：</strong>
-                    <div style="color: #475569; margin-top: 2px; line-height: 1.4;">${p1.desc || '無文字說明'}</div>
-                  </div>
-                </td>
-                ${p2 ? `
-                <td style="width: 50%; vertical-align: top; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px;">
-                  <div style="width: 100%; height: 160px; background-color: #0f172a; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                    <img src="${p2Url}" style="max-height: 160px; max-width: 100%; object-fit: contain;">
-                  </div>
-                  <div style="font-size: 11px; margin-top: 6px;">
-                    <strong style="color: #334155;">照片 #${i + 2} 說明：</strong>
-                    <div style="color: #475569; margin-top: 2px; line-height: 1.4;">${p2.desc || '無文字說明'}</div>
-                  </div>
-                </td>
-                ` : `<td style="width: 50%; border: none;"></td>`}
-              </tr>
-            </table>
+            <div class="print-photo-row" style="margin-bottom: 8px;">
+              <table style="width: 100%; border-collapse: separate; border-spacing: 8px;">
+                <tr>
+                  <td style="width: 50%; vertical-align: top; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px;">
+                    <div style="width: 100%; height: 160px; background-color: #0f172a; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                      <img src="${p1Url}" style="max-height: 160px; max-width: 100%; object-fit: contain;">
+                    </div>
+                    <div style="font-size: 11px; margin-top: 6px;">
+                      <strong style="color: #334155;">照片 #${i + 1} 說明：</strong>
+                      <div style="color: #475569; margin-top: 2px; line-height: 1.4;">${p1.desc || '無文字說明'}</div>
+                    </div>
+                  </td>
+                  ${p2 ? `
+                  <td style="width: 50%; vertical-align: top; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px;">
+                    <div style="width: 100%; height: 160px; background-color: #0f172a; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                      <img src="${p2Url}" style="max-height: 160px; max-width: 100%; object-fit: contain;">
+                    </div>
+                    <div style="font-size: 11px; margin-top: 6px;">
+                      <strong style="color: #334155;">照片 #${i + 2} 說明：</strong>
+                      <div style="color: #475569; margin-top: 2px; line-height: 1.4;">${p2.desc || '無文字說明'}</div>
+                    </div>
+                  </td>
+                  ` : `<td style="width: 50%; border: none;"></td>`}
+                </tr>
+              </table>
+            </div>
           `;
         }
 
         return `
-          <div class="page-break-avoid" style="border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 16px; background-color: #ffffff;">
-            <table style="width: 100%; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 8px;">
-              <tr>
-                <td style="text-align: left; font-size: 14px; font-weight: 700; color: #0f172a; width: 60%;">
-                  #${index + 1} 班級：${rec.className}
-                </td>
-                <td style="text-align: right; font-size: 11px; color: #64748b; width: 40%;">
-                  填報時間：${rec.createdAt} &nbsp;|&nbsp; 填表導師：${rec.reporter}
-                </td>
-              </tr>
-            </table>
+          <div class="class-report-card" style="border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 16px; background-color: #ffffff;">
+            <div class="print-header-row" style="border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 8px;">
+              <table style="width: 100%;">
+                <tr>
+                  <td style="text-align: left; font-size: 14px; font-weight: 700; color: #0f172a; width: 60%;">
+                    #${index + 1} 班級：${rec.className}
+                  </td>
+                  <td style="text-align: right; font-size: 11px; color: #64748b; width: 40%;">
+                    填報時間：${rec.createdAt} &nbsp;|&nbsp; 填表導師：${rec.reporter}
+                  </td>
+                </tr>
+              </table>
+            </div>
             ${photoRowsHtml}
           </div>
         `;
