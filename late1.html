@@ -38,6 +38,15 @@
             scrollbar-width: none;
         }
         .grid { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; }
+        
+        /* 同步旋轉動畫 */
+        @keyframes spinSlow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin-custom {
+            animation: spinSlow 1s linear infinite;
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-sans">
@@ -74,10 +83,19 @@
           Admin: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><path d="M14 8h.01"/><path d="M14 12h.01"/><path d="M14 16h.01"/></svg>; },
           Check: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>; },
           Clock: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>; },
-          LogOut: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>; },
+          LogOut: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>; },
           Calendar: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>; },
           User: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>; },
-          Settings: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>; }
+          Settings: function() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>; },
+          Refresh: function(props) { 
+            return (
+              <svg className={props && props.className ? props.className : ""} xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+            ); 
+          }
         };
 
         var getTodayDate = function() { return new Date().toISOString().split('T')[0]; };
@@ -149,7 +167,7 @@
               return seatA - seatB;
             });
 
-          // 核心升級：本地極速帶出 + 雲端保底查詢
+          // 本地極速帶出 + 雲端保底查詢
           var handleSeatNumberLookup = function() {
             var cls = (formData.gradeClass || '').trim();
             var seat = (formData.seatNumber || '').trim();
@@ -158,7 +176,6 @@
             var seatNum = parseInt(seat, 10);
             var targetGrade = extractGrade(cls);
 
-            // 1. 優先在本地快取名單搜尋（毫秒級）
             if (allStudents && allStudents.length > 0) {
               var localMatch = allStudents.find(function(s) {
                 var sGrade = extractGrade(String(s.gradeClass || s.class || ''));
@@ -177,7 +194,6 @@
               }
             }
 
-            // 2. 本地查無時，向 GAS API 查詢保底
             fetch(GAS_URL + '?action=lookup&gradeClass=' + encodeURIComponent(cls) + '&seatNumber=' + encodeURIComponent(seat))
               .then(function(res) { return res.json(); })
               .then(function(result) {
@@ -424,6 +440,7 @@
           var onRefresh = props.onRefresh;
           var onDelete = props.onDelete;
           var onUpdate = props.onUpdate;
+          var isSyncing = props.isSyncing;
 
           var startDateState = useState('2020-01-01');
           var startDate = startDateState[0];
@@ -476,8 +493,9 @@
                     <h2 className="font-bold text-gray-800 text-lg">115-1 均一國小部課後晚接記錄 (區間總表)</h2>
                     <p className="text-xs text-gray-500 mt-1">目前顯示區間共 <strong className="text-gray-800">{filteredRecords.length}</strong> 筆資料，其中尚未接回 <strong className="text-yellow-600">{waitingCount}</strong> 筆。</p>
                   </div>
-                  <button onClick={onRefresh} className="p-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50" title="重新整理資料">
-                    <Icons.Clock />
+                  <button onClick={onRefresh} className="flex items-center px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 font-bold text-sm" title="重新整理資料">
+                    <Icons.Refresh className={isSyncing ? "animate-spin-custom text-blue-600 mr-1.5" : "text-gray-600 mr-1.5"} />
+                    <span>重新整理</span>
                   </button>
                 </div>
                 <div className="overflow-x-auto max-h-[600px] hide-scrollbar">
@@ -611,11 +629,17 @@
           var toast = toastState[0];
           var setToast = toastState[1];
 
+          // 同步中狀態
+          var isSyncingState = useState(false);
+          var isSyncing = isSyncingState[0];
+          var setIsSyncing = isSyncingState[1];
+
           var showToast = function(msg) { setToast(msg); };
 
           // 雲端資料同步至前端與快取
-          var fetchRecordsFromGAS = function() {
-            fetch(GAS_URL, { method: 'GET' })
+          var fetchRecordsFromGAS = function(isManual) {
+            if (isManual) setIsSyncing(true);
+            return fetch(GAS_URL, { method: 'GET' })
               .then(function(res) { return res.json(); })
               .then(function(data) {
                 if (data.status === 'success' && Array.isArray(data.data)) {
@@ -626,12 +650,15 @@
               })
               .catch(function(err) {
                 console.warn("背景同步暫緩，保持本地最新快取", err);
+              })
+              .finally(function() {
+                if (isManual) setIsSyncing(false);
               });
           };
 
           // 預先在背景下載全校名單
           var prefetchStudentsList = function() {
-            fetch(GAS_URL + '?action=getAllStudents')
+            return fetch(GAS_URL + '?action=getAllStudents')
               .then(function(res) { return res.json(); })
               .then(function(json) {
                 if (json.status === 'success' && Array.isArray(json.data)) {
@@ -642,12 +669,29 @@
               .catch(function() {});
           };
 
+          // 統一手動同步函數（包含名單與接回資料）
+          var handleManualSync = function() {
+            if (isSyncing) return;
+            setIsSyncing(true);
+            showToast('🔄 正在同步雲端資料...');
+            Promise.all([fetchRecordsFromGAS(false), prefetchStudentsList()])
+              .then(function() {
+                showToast('✅ 雲端資料已同步完成！');
+              })
+              .catch(function() {
+                showToast('⚠️ 同步發生問題，請檢查網路連線');
+              })
+              .finally(function() {
+                setIsSyncing(false);
+              });
+          };
+
           useEffect(function() {
-            fetchRecordsFromGAS();
+            fetchRecordsFromGAS(false);
             prefetchStudentsList();
           }, []);
 
-          // 🌟 樂觀更新的核心背景傳輸（不再全螢幕卡死）
+          // 樂觀更新的核心背景傳輸
           var executeAction = function(actionType, payload, successMsg) {
             showToast(successMsg);
             fetch(GAS_URL, {
@@ -657,14 +701,13 @@
               body: JSON.stringify({ action: actionType, data: payload }),
             })
             .then(function() {
-              setTimeout(function() { fetchRecordsFromGAS(); }, 1200);
+              setTimeout(function() { fetchRecordsFromGAS(false); }, 1200);
             })
             .catch(function(err) {
               console.warn("雲端背景通訊延遲，本地已安全儲存", err);
             });
           };
 
-          // 1. 新增登記：前端秒速置頂 + 背景推送
           var handleAddRecord = function(data, currentRoleTitle) {
             var newRecord = {
               id: Date.now(),
@@ -689,7 +732,6 @@
             executeAction('add', newRecord, '✅ 已登記：' + data.studentName + '（雲端同步中）');
           };
 
-          // 2. 簽退：前端秒速更新狀態 + 背景推送
           var handleCheckout = function(id, parentSignature) {
             var depTime = getCurrentTime();
             setRecords(function(prev) {
@@ -706,7 +748,6 @@
             executeAction('checkout', { id: id, departureTime: depTime, signature: parentSignature }, '✅ 已簽退：' + parentSignature);
           };
 
-          // 3. 刪除：前端秒速移除 + 背景推送
           var handleDelete = function(id) {
             setRecords(function(prev) {
               var next = prev.filter(function(r) { return r.id !== id; });
@@ -717,7 +758,6 @@
             executeAction('delete', { id: id }, '🗑️ 記錄已自畫面移除');
           };
 
-          // 4. 更新：前端秒速更新
           var handleUpdate = function(updatedRecord) {
             setRecords(function(prev) {
               var next = prev.map(function(r) {
@@ -800,13 +840,27 @@
                         <img src="https://junyi.tw/sites/default/files/logo--junyi-header-2020--w300@2x.png" alt="均一 Logo" className="max-h-10" />
                       </div>
                       <span className="font-bold text-gray-800 text-xl hidden sm:block tracking-tight">國小部晚接記錄系統</span>
-                      <span className={'ml-2 px-4 py-1.5 rounded-full text-sm font-bold ' + roleConfig[role].color}>
+                      <span className={'ml-2 px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-bold ' + roleConfig[role].color}>
                         {roleConfig[role].title}
                       </span>
                     </div>
-                    <button onClick={function() { setRole(null); fetchRecordsFromGAS(); }} className="flex items-center px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-sm transition">
-                      <Icons.LogOut /> <span className="ml-1">切換身分</span>
-                    </button>
+
+                    <div className="flex items-center space-x-2 sm:space-x-3">
+                      {/* 🌟 每個身分登入後皆具備的「同步雲端」按鈕 */}
+                      <button 
+                        onClick={handleManualSync} 
+                        disabled={isSyncing}
+                        className="flex items-center px-3 sm:px-4 py-2 sm:py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-bold text-xs sm:text-sm transition shadow-sm active:scale-95 disabled:opacity-50"
+                        title="手動立即拉取雲端試算表最新紀錄"
+                      >
+                        <Icons.Refresh className={isSyncing ? "animate-spin-custom mr-1 sm:mr-1.5" : "mr-1 sm:mr-1.5"} />
+                        <span>{isSyncing ? '同步中...' : '同步雲端'}</span>
+                      </button>
+
+                      <button onClick={function() { setRole(null); fetchRecordsFromGAS(false); }} className="flex items-center px-3 sm:px-4 py-2 sm:py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-xs sm:text-sm transition">
+                        <Icons.LogOut /> <span className="ml-1 hidden sm:inline">切換身分</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </nav>
@@ -816,7 +870,7 @@
                   <OperationalView currentRoleTitle={roleConfig[role].title} records={records} allStudents={allStudents} onAddRecord={handleAddRecord} onCheckout={handleCheckout} onDelete={handleDelete} onUpdate={handleUpdate} showToast={showToast} />
                 )}
                 {roleConfig[role].type === 'admin' && (
-                  <AdminView records={records} onRefresh={fetchRecordsFromGAS} onDelete={handleDelete} onUpdate={handleUpdate} />
+                  <AdminView records={records} isSyncing={isSyncing} onRefresh={handleManualSync} onDelete={handleDelete} onUpdate={handleUpdate} />
                 )}
               </main>
 
