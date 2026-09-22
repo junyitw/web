@@ -11,10 +11,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/es5-shim/4.6.7/es5-shim.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/es5-shim/4.6.7/es5-sham.min.js"></script>
 
-    <!-- 2. 改用相容性極佳的 Tailwind 2.2.19 靜態 CSS (取代 cdn.tailwindcss.com) -->
+    <!-- 2. Tailwind 2.2.19 靜態 CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
     
-    <!-- 3. 改用 React 17 UMD (對 iOS 10.3 穩定度遠高於 React 18) -->
+    <!-- 3. React 17 UMD -->
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/17.0.2/umd/react.production.min.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/17.0.2/umd/react-dom.production.min.js"></script>
     
@@ -27,8 +27,8 @@
             to { opacity: 1; transform: translateY(0); -webkit-transform: translateY(0); }
         }
         .animate-fade-in-up {
-            animation: fadeInUp 0.4s ease-out forwards;
-            -webkit-animation: fadeInUp 0.4s ease-out forwards;
+            animation: fadeInUp 0.3s ease-out forwards;
+            -webkit-animation: fadeInUp 0.3s ease-out forwards;
         }
         .hide-scrollbar::-webkit-scrollbar {
             display: none;
@@ -37,7 +37,6 @@
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
-        /* 修正 iOS 10 對 CSS flex gap 支援不足的問題 */
         .grid { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; }
     </style>
 </head>
@@ -49,31 +48,21 @@
         var useEffect = React.useEffect;
         var useRef = React.useRef;
 
+        var GAS_URL = 'https://script.google.com/macros/s/AKfycbxidUn1nAfCp1FRffupl9MEeW7K7WeN1jhRAuBgm1gTlERsBtHFlV-O5rGrRNdibKfR/exec';
+
         var Toast = function(props) {
           var message = props.message;
           var onClose = props.onClose;
 
           useEffect(function() {
-            var timer = setTimeout(onClose, 3000);
+            var timer = setTimeout(onClose, 2500);
             return function() { clearTimeout(timer); };
           }, [onClose]);
 
           return (
-            <div className="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-4 rounded-xl shadow-2xl z-50 animate-fade-in-up flex items-center">
-              <span className="text-xl mr-3">🔔</span>
-              <span className="font-medium">{message}</span>
-            </div>
-          );
-        };
-
-        var LoadingOverlay = function(props) {
-          var message = props.message;
-          return (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex flex-col items-center justify-center z-50 animate-fade-in-up">
-              <div className="bg-white px-8 py-6 rounded-2xl shadow-2xl flex items-center border border-gray-100">
-                <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mr-4"></div>
-                <span className="font-bold text-gray-700 text-lg">{message || "資料同步中，請稍候..."}</span>
-              </div>
+            <div className="fixed bottom-6 right-6 bg-gray-900 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 animate-fade-in-up flex items-center">
+              <span className="text-lg mr-2.5">🔔</span>
+              <span className="font-medium text-sm">{message}</span>
             </div>
           );
         };
@@ -99,6 +88,21 @@
           return hours + ':' + minutes;
         };
 
+        // 輔助：格式化班級年級
+        var extractGrade = function(str) {
+          if (!str) return '';
+          var cnMap = { '一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6' };
+          for (var cn in cnMap) {
+            if (str.indexOf(cn) !== -1) return cnMap[cn];
+          }
+          var match = str.match(/\d+/);
+          if (match) {
+            var num = match[0];
+            return num.length >= 3 ? num.charAt(0) : num;
+          }
+          return str;
+        };
+
         var OperationalView = function(props) {
           var currentRoleTitle = props.currentRoleTitle;
           var records = props.records;
@@ -106,8 +110,8 @@
           var onCheckout = props.onCheckout;
           var onDelete = props.onDelete;
           var onUpdate = props.onUpdate;
-          var gasUrl = props.gasUrl;
           var showToast = props.showToast;
+          var allStudents = props.allStudents;
 
           var formDataState = useState({ gradeClass: '', seatNumber: '', studentName: '', notes: '' });
           var formData = formDataState[0];
@@ -145,23 +149,48 @@
               return seatA - seatB;
             });
 
+          // 核心升級：本地極速帶出 + 雲端保底查詢
           var handleSeatNumberLookup = function() {
-            if (!formData.gradeClass || !formData.seatNumber) return;
-            fetch(gasUrl + '?action=lookup&gradeClass=' + encodeURIComponent(formData.gradeClass) + '&seatNumber=' + encodeURIComponent(formData.seatNumber))
+            var cls = (formData.gradeClass || '').trim();
+            var seat = (formData.seatNumber || '').trim();
+            if (!cls || !seat) return;
+
+            var seatNum = parseInt(seat, 10);
+            var targetGrade = extractGrade(cls);
+
+            // 1. 優先在本地快取名單搜尋（毫秒級）
+            if (allStudents && allStudents.length > 0) {
+              var localMatch = allStudents.find(function(s) {
+                var sGrade = extractGrade(String(s.gradeClass || s.class || ''));
+                var sSeat = parseInt(s.seatNumber || s.seat || 0, 10);
+                return sSeat === seatNum && (sGrade === targetGrade || String(s.gradeClass || s.class).indexOf(cls) !== -1);
+              });
+
+              if (localMatch) {
+                var foundName = localMatch.studentName || localMatch.name;
+                if (foundName) {
+                  setFormData(function(prev) { return Object.assign({}, prev, { studentName: foundName }); });
+                  showToast('⚡ 本地已帶出：' + foundName);
+                  if (notesRef.current) notesRef.current.focus();
+                  return;
+                }
+              }
+            }
+
+            // 2. 本地查無時，向 GAS API 查詢保底
+            fetch(GAS_URL + '?action=lookup&gradeClass=' + encodeURIComponent(cls) + '&seatNumber=' + encodeURIComponent(seat))
               .then(function(res) { return res.json(); })
               .then(function(result) {
                 if (result.status === 'success' && result.data && result.data.name) {
                   setFormData(function(prev) { return Object.assign({}, prev, { studentName: result.data.name }); });
-                  showToast('✅ 已帶出學生：' + result.data.name);
+                  showToast('✅ 雲端帶出：' + result.data.name);
                   if (notesRef.current) notesRef.current.focus();
                 } else {
-                  showToast('⚠️ 找不到對應的學生，請檢查班級與座號');
-                  setFormData(function(prev) { return Object.assign({}, prev, { studentName: '' }); });
+                  showToast('⚠️ 未查得學生，可直接點擊姓名欄手動輸入');
                 }
               })
               .catch(function(err) {
-                console.error(err);
-                showToast('❌ 查詢學生失敗');
+                showToast('未查得學生，請手動填寫姓名');
               });
           };
 
@@ -199,7 +228,7 @@
                       <input type="text" placeholder="例: 301" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none focus:border-green-500" value={formData.gradeClass} onChange={function(e) { setFormData(Object.assign({}, formData, { gradeClass: e.target.value })); }} required />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-600 mb-1">座號 (可按 Enter)</label>
+                      <label className="block text-sm font-semibold text-gray-600 mb-1">座號 (按 Enter 秒出)</label>
                       <input 
                         type="text" 
                         placeholder="例: 5" 
@@ -212,8 +241,15 @@
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-600 mb-1">姓名 (自動帶出)</label>
-                      <input type="text" placeholder="自動帶出" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl bg-gray-50 font-bold outline-none" value={formData.studentName} readOnly required />
+                      <label className="block text-sm font-semibold text-gray-600 mb-1">姓名 (自動帶出/可修改)</label>
+                      <input 
+                        type="text" 
+                        placeholder="自動帶出" 
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl bg-gray-50 font-bold outline-none focus:bg-white focus:border-green-500" 
+                        value={formData.studentName} 
+                        onChange={function(e) { setFormData(Object.assign({}, formData, { studentName: e.target.value })); }}
+                        required 
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-600 mb-1">備註 (選填)</label>
@@ -227,8 +263,8 @@
                       />
                     </div>
                   </div>
-                  <button type="submit" className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold px-8 py-3 rounded-xl shadow-md">
-                    送出登記 (自動記錄到辦公室時間)
+                  <button type="submit" className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold px-8 py-3 rounded-xl shadow-md transition active:scale-95">
+                    送出登記 (即刻上表並同步)
                   </button>
                 </form>
               </div>
@@ -268,7 +304,7 @@
                             {student.notes && <p className="text-sm text-yellow-800 mt-3 bg-yellow-50 px-3 py-2 rounded-lg font-medium">備註: {student.notes}</p>}
                             <p className="text-xs text-gray-400 mt-2">登記單位: {student.createdBy}</p>
                           </div>
-                          <button onClick={function() { setSelectedStudent(student); setSignature('爸爸'); setOtherName(''); }} className="w-full mt-5 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-3 rounded-xl flex justify-center items-center">
+                          <button onClick={function() { setSelectedStudent(student); setSignature('爸爸'); setOtherName(''); }} className="w-full mt-5 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-3 rounded-xl flex justify-center items-center shadow transition active:scale-95">
                             <Icons.Check /> <span className="ml-1">確認簽退</span>
                           </button>
                         </div>
@@ -300,7 +336,7 @@
                                 setSignature(option); 
                                 if (option === '其他') setOtherName(''); 
                               }}
-                              className={'py-3 px-4 rounded-xl font-bold border-2 text-center ' + (signature === option ? 'border-yellow-500 bg-yellow-50 text-yellow-900 shadow-sm' : 'border-gray-200 bg-white text-gray-600')}
+                              className={'py-3 px-4 rounded-xl font-bold border-2 text-center transition ' + (signature === option ? 'border-yellow-500 bg-yellow-50 text-yellow-900 shadow-sm' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300')}
                             >
                               {option}
                             </button>
@@ -337,7 +373,7 @@
                           setOtherName('');
                         }} 
                         disabled={signature === '其他' && !otherName.trim()} 
-                        className="flex-1 py-4 bg-yellow-500 text-white font-bold rounded-xl shadow-md disabled:opacity-50"
+                        className="flex-1 py-4 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl shadow-md disabled:opacity-50 transition"
                       >
                         確認送出
                       </button>
@@ -405,8 +441,6 @@
           var editingRecord = editingRecordState[0];
           var setEditingRecord = editingRecordState[1];
 
-          var gasUrl = 'https://script.google.com/macros/s/AKfycbxidUn1nAfCp1FRffupl9MEeW7K7WeN1jhRAuBgm1gTlERsBtHFlV-O5rGrRNdibKfR/exec';
-
           var filteredRecords = records.filter(function(r) { return r.date >= startDate && r.date <= endDate; });
           var waitingCount = filteredRecords.filter(function(r) { return r.status === 'waiting'; }).length;
 
@@ -442,7 +476,7 @@
                     <h2 className="font-bold text-gray-800 text-lg">115-1 均一國小部課後晚接記錄 (區間總表)</h2>
                     <p className="text-xs text-gray-500 mt-1">目前顯示區間共 <strong className="text-gray-800">{filteredRecords.length}</strong> 筆資料，其中尚未接回 <strong className="text-yellow-600">{waitingCount}</strong> 筆。</p>
                   </div>
-                  <button onClick={onRefresh} className="p-2 bg-white border border-gray-200 rounded-lg text-gray-600" title="重新整理資料">
+                  <button onClick={onRefresh} className="p-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50" title="重新整理資料">
                     <Icons.Clock />
                   </button>
                 </div>
@@ -503,7 +537,7 @@
                     </div>
                     <h3 className="text-2xl font-bold text-center text-gray-800 mb-4">GAS 連線狀態</h3>
                     <p className="text-sm text-gray-500 mb-6 text-center">系統已自動與 Google 試算表完成連線。</p>
-                    <input type="text" readOnly className="w-full px-4 py-4 border-2 border-gray-200 rounded-xl outline-none font-mono text-sm text-gray-500 bg-gray-100 mb-6" value={gasUrl} />
+                    <input type="text" readOnly className="w-full px-4 py-4 border-2 border-gray-200 rounded-xl outline-none font-mono text-sm text-gray-500 bg-gray-100 mb-6" value={GAS_URL} />
                     <button onClick={function() { setShowGasModal(false); }} className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700">確定</button>
                   </div>
                 </div>
@@ -551,64 +585,92 @@
           var role = roleState[0];
           var setRole = roleState[1];
 
-          var recordsState = useState([]);
+          // 優先讀取本地快取紀錄
+          var recordsState = useState(function() {
+            var cached = localStorage.getItem('cached_pickup_records');
+            if (cached) {
+              try { return JSON.parse(cached); } catch(e) { return []; }
+            }
+            return [];
+          });
           var records = recordsState[0];
           var setRecords = recordsState[1];
+
+          // 預載全校名單快取
+          var allStudentsState = useState(function() {
+            var cached = localStorage.getItem('cached_all_students');
+            if (cached) {
+              try { return JSON.parse(cached); } catch(e) { return []; }
+            }
+            return [];
+          });
+          var allStudents = allStudentsState[0];
+          var setAllStudents = allStudentsState[1];
 
           var toastState = useState(null);
           var toast = toastState[0];
           var setToast = toastState[1];
 
-          var isLoadingState = useState(false);
-          var isLoading = isLoadingState[0];
-          var setIsLoading = isLoadingState[1];
-
           var showToast = function(msg) { setToast(msg); };
-          var gasUrl = 'https://script.google.com/macros/s/AKfycbxidUn1nAfCp1FRffupl9MEeW7K7WeN1jhRAuBgm1gTlERsBtHFlV-O5rGrRNdibKfR/exec';
 
+          // 雲端資料同步至前端與快取
           var fetchRecordsFromGAS = function() {
-            fetch(gasUrl, { method: 'GET' })
+            fetch(GAS_URL, { method: 'GET' })
               .then(function(res) { return res.json(); })
               .then(function(data) {
                 if (data.status === 'success' && Array.isArray(data.data)) {
-                  setRecords(data.data.reverse());
-                  showToast('✅ 試算表資料已同步更新');
+                  var rev = data.data.reverse();
+                  setRecords(rev);
+                  localStorage.setItem('cached_pickup_records', JSON.stringify(rev));
                 }
               })
               .catch(function(err) {
-                console.warn("取得試算表失敗", err);
+                console.warn("背景同步暫緩，保持本地最新快取", err);
               });
           };
 
-          useEffect(function() { fetchRecordsFromGAS(); }, []);
+          // 預先在背景下載全校名單
+          var prefetchStudentsList = function() {
+            fetch(GAS_URL + '?action=getAllStudents')
+              .then(function(res) { return res.json(); })
+              .then(function(json) {
+                if (json.status === 'success' && Array.isArray(json.data)) {
+                  setAllStudents(json.data);
+                  localStorage.setItem('cached_all_students', JSON.stringify(json.data));
+                }
+              })
+              .catch(function() {});
+          };
 
+          useEffect(function() {
+            fetchRecordsFromGAS();
+            prefetchStudentsList();
+          }, []);
+
+          // 🌟 樂觀更新的核心背景傳輸（不再全螢幕卡死）
           var executeAction = function(actionType, payload, successMsg) {
-            setIsLoading(true);
-            fetch(gasUrl, {
+            showToast(successMsg);
+            fetch(GAS_URL, {
               method: 'POST',
               mode: 'no-cors',
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: actionType, data: payload }),
             })
             .then(function() {
-              showToast(successMsg);
-              setTimeout(function() { 
-                fetchRecordsFromGAS(); 
-                setIsLoading(false);
-              }, 1500);
+              setTimeout(function() { fetchRecordsFromGAS(); }, 1200);
             })
             .catch(function(err) {
-              console.error(err);
-              showToast('❌ 與試算表連線失敗');
-              setIsLoading(false);
+              console.warn("雲端背景通訊延遲，本地已安全儲存", err);
             });
           };
 
+          // 1. 新增登記：前端秒速置頂 + 背景推送
           var handleAddRecord = function(data, currentRoleTitle) {
             var newRecord = {
               id: Date.now(),
               date: getTodayDate(),
               gradeClass: data.gradeClass,
+              seatNumber: data.seatNumber,
               studentName: data.studentName,
               arrivalTime: getCurrentTime(),
               departureTime: '',
@@ -617,18 +679,54 @@
               status: 'waiting',
               createdBy: currentRoleTitle
             };
-            executeAction('add', newRecord, '✅ 已成功送出登記：' + data.studentName);
+            
+            setRecords(function(prev) {
+              var next = [newRecord].concat(prev);
+              localStorage.setItem('cached_pickup_records', JSON.stringify(next));
+              return next;
+            });
+
+            executeAction('add', newRecord, '✅ 已登記：' + data.studentName + '（雲端同步中）');
           };
 
+          // 2. 簽退：前端秒速更新狀態 + 背景推送
           var handleCheckout = function(id, parentSignature) {
-            executeAction('checkout', { id: id, departureTime: getCurrentTime(), signature: parentSignature }, '✅ 簽退送出成功！');
+            var depTime = getCurrentTime();
+            setRecords(function(prev) {
+              var next = prev.map(function(r) {
+                if (r.id === id) {
+                  return Object.assign({}, r, { status: 'completed', departureTime: depTime, signature: parentSignature });
+                }
+                return r;
+              });
+              localStorage.setItem('cached_pickup_records', JSON.stringify(next));
+              return next;
+            });
+
+            executeAction('checkout', { id: id, departureTime: depTime, signature: parentSignature }, '✅ 已簽退：' + parentSignature);
           };
 
+          // 3. 刪除：前端秒速移除 + 背景推送
           var handleDelete = function(id) {
-            executeAction('delete', { id: id }, '🗑️ 記錄已刪除');
+            setRecords(function(prev) {
+              var next = prev.filter(function(r) { return r.id !== id; });
+              localStorage.setItem('cached_pickup_records', JSON.stringify(next));
+              return next;
+            });
+
+            executeAction('delete', { id: id }, '🗑️ 記錄已自畫面移除');
           };
 
+          // 4. 更新：前端秒速更新
           var handleUpdate = function(updatedRecord) {
+            setRecords(function(prev) {
+              var next = prev.map(function(r) {
+                return r.id === updatedRecord.id ? updatedRecord : r;
+              });
+              localStorage.setItem('cached_pickup_records', JSON.stringify(next));
+              return next;
+            });
+
             executeAction('update', updatedRecord, '✏️ 記錄已更新');
           };
 
@@ -652,7 +750,6 @@
           if (!role) {
             return (
               <div className="min-h-screen bg-gray-100 flex flex-col justify-center items-center p-4">
-                {isLoading && <LoadingOverlay message="正在與試算表同步資料..." />}
                 <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 space-y-8 animate-fade-in-up border border-gray-200">
                   <div className="text-center pt-4">
                     <div className="mx-auto flex items-center justify-center mb-6">
@@ -667,15 +764,15 @@
                     <div>
                       <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-widest pl-2">一線操作人員 (新增/簽退)</p>
                       <div className="grid grid-cols-2 gap-3">
-                        <button onClick={function() { setRole('teacher'); }} className="h-28 flex flex-col items-center justify-center bg-white hover:bg-blue-50 text-gray-600 font-bold rounded-2xl border-2 border-gray-200 shadow-sm">
+                        <button onClick={function() { setRole('teacher'); }} className="h-28 flex flex-col items-center justify-center bg-white hover:bg-blue-50 text-gray-600 font-bold rounded-2xl border-2 border-gray-200 shadow-sm transition">
                           <span className="p-2.5 bg-blue-50 rounded-xl mb-1"><Icons.Teacher /></span> 安親老師
                         </button>
                         
-                        <button onClick={function() { setRole('office'); }} className="h-28 flex flex-col items-center justify-center bg-white hover:bg-purple-50 text-gray-600 font-bold rounded-2xl border-2 border-gray-200 shadow-sm">
+                        <button onClick={function() { setRole('office'); }} className="h-28 flex flex-col items-center justify-center bg-white hover:bg-purple-50 text-gray-600 font-bold rounded-2xl border-2 border-gray-200 shadow-sm transition">
                           <span className="p-2.5 bg-purple-50 rounded-xl mb-1"><Icons.Office /></span> 辦公室
                         </button>
                         
-                        <button onClick={function() { setRole('guard'); }} className="col-span-2 mt-3 h-28 flex flex-col items-center justify-center bg-white hover:bg-yellow-50 text-gray-600 font-bold rounded-2xl border-2 border-gray-200 shadow-sm">
+                        <button onClick={function() { setRole('guard'); }} className="col-span-2 mt-3 h-28 flex flex-col items-center justify-center bg-white hover:bg-yellow-50 text-gray-600 font-bold rounded-2xl border-2 border-gray-200 shadow-sm transition">
                           <span className="p-2.5 bg-yellow-100 rounded-xl text-yellow-700 mb-1"><Icons.Guard /></span> 警衛室
                         </button>
                       </div>
@@ -683,7 +780,7 @@
                     
                     <div className="pt-2">
                       <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-widest pl-2">主任 / 系統管理</p>
-                      <button onClick={handleAdminLogin} className="w-full flex items-center justify-center bg-gray-800 hover:bg-gray-900 text-white font-bold py-5 rounded-2xl shadow-md">
+                      <button onClick={handleAdminLogin} className="w-full flex items-center justify-center bg-gray-800 hover:bg-gray-900 text-white font-bold py-5 rounded-2xl shadow-md transition">
                         <Icons.Admin /> <span className="ml-2">行政管理端 (查看總表)</span>
                       </button>
                     </div>
@@ -695,7 +792,6 @@
 
           return (
             <div className="min-h-screen relative">
-              {isLoading && <LoadingOverlay message="正在與試算表同步資料..." />}
               <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40">
                 <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
                   <div className="flex justify-between h-20 items-center">
@@ -708,8 +804,8 @@
                         {roleConfig[role].title}
                       </span>
                     </div>
-                    <button onClick={function() { setRole(null); fetchRecordsFromGAS(); }} className="flex items-center px-5 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">
-                      <Icons.LogOut /> <span className="ml-1">回到上一頁</span>
+                    <button onClick={function() { setRole(null); fetchRecordsFromGAS(); }} className="flex items-center px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-sm transition">
+                      <Icons.LogOut /> <span className="ml-1">切換身分</span>
                     </button>
                   </div>
                 </div>
@@ -717,7 +813,7 @@
 
               <main className="px-4 py-8 max-w-6xl mx-auto">
                 {roleConfig[role].type === 'operation' && (
-                  <OperationalView currentRoleTitle={roleConfig[role].title} records={records} onAddRecord={handleAddRecord} onCheckout={handleCheckout} onDelete={handleDelete} onUpdate={handleUpdate} gasUrl={gasUrl} showToast={showToast} />
+                  <OperationalView currentRoleTitle={roleConfig[role].title} records={records} allStudents={allStudents} onAddRecord={handleAddRecord} onCheckout={handleCheckout} onDelete={handleDelete} onUpdate={handleUpdate} showToast={showToast} />
                 )}
                 {roleConfig[role].type === 'admin' && (
                   <AdminView records={records} onRefresh={fetchRecordsFromGAS} onDelete={handleDelete} onUpdate={handleUpdate} />
@@ -729,7 +825,6 @@
           );
         };
 
-        // 使用 React 17 渲染語法相容舊版 Safari
         ReactDOM.render(<App />, document.getElementById('root'));
     </script>
 </body>
