@@ -64,7 +64,7 @@
            display: block !important;
            page-break-after: always !important;
            break-after: page !important;
-           height: 280mm !important;
+           height: 10mm !important;
            background: white !important;
            box-sizing: border-box !important;
         }
@@ -227,10 +227,11 @@ async syncClassToYearDoc(yearId, classId, classData) {
                     ...c,
                     name: classData.name || c.name,
                     settings: { 
-                        ...(c.settings || {}), 
-                        className: classData.name || c.name, 
-                        mentor: classData.settings?.mentor || c.settings?.mentor 
-                    },
+    ...(c.settings || {}),
+    ...(classData.settings || {}), // 確保導師設定的班級現況與學科摘要同步回母快照
+    className: classData.name || classData.settings?.className || c.name, 
+    mentor: classData.settings?.mentor || c.settings?.mentor 
+},
                     students: minimalStudents
                 };
             }
