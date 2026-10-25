@@ -201,7 +201,7 @@ import {
                     students: []
                 }));
             }
-// 同步單一班級的最新快照（名稱、導師、學生清單）至母學年文件
+// 同步單一班級的最小快照（名稱、導師、學生基礎清單）至母學年文件
 async syncClassToYearDoc(yearId, classId, classData) {
     try {
         const yearUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/years/${yearId}`;
@@ -214,24 +214,26 @@ async syncClassToYearDoc(yearId, classId, classData) {
             yFields[k] = fromFirestoreFormat(yJson.fields[k]);
         }
         
-        // 僅保留學生基礎資訊（id, no, name），評量細項留於子文件即可，避免母文件過大
+        // 僅保留學生身分識別資訊（id, no, name），評量細項留於子文件
         const minimalStudents = (classData.students || []).map(s => ({
             id: s.id,
             no: s.no,
             name: s.name
         }));
 
+        const mentorName = classData.settings?.mentor || classData.mentor || "未指定";
+        const clsName = classData.name || classData.settings?.className || "未命名班級";
+
         const updatedClasses = (yFields.classes || []).map(c => {
             if (c.id === classId) {
                 return {
-                    ...c,
-                    name: classData.name || c.name,
-                    settings: { 
-    ...(c.settings || {}),
-    ...(classData.settings || {}), // 確保導師設定的班級現況與學科摘要同步回母快照
-    className: classData.name || classData.settings?.className || c.name, 
-    mentor: classData.settings?.mentor || c.settings?.mentor 
-},
+                    id: c.id,
+                    name: clsName,
+                    mentor: mentorName,
+                    settings: {
+                        className: clsName,
+                        mentor: mentorName
+                    },
                     students: minimalStudents
                 };
             }
@@ -2370,11 +2372,27 @@ try {
             const [targetSection, setTargetSection] = useState(null);
             const [dirty, setDirty] = useState(false);
             const [lastSaved, setLastSaved] = useState(null);
-            
-            // ✅ 正確移入內部：F5 草稿暫存與衝突比對狀態
-            const [diffConflict, setDiffConflict] = useState(null);
-            const currentDataRef = useRef(data);
-            useEffect(() => { currentDataRef.current = data; }, [data]);
+
+            // ✅ 追蹤座號快照
+            const initialStudentsSnapRef = useRef(null);
+
+            // 切換學年或班級時重置
+            useEffect(() => {
+                initialStudentsSnapRef.current = null;
+            }, [yearId, classId]);
+
+            // 班級資料載入完成後記錄初始座號
+            useEffect(() => {
+                if (data && Array.isArray(data.students) && !initialStudentsSnapRef.current) {
+                    try {
+                        initialStudentsSnapRef.current = JSON.stringify(
+                            data.students.map(s => ({ id: s?.id || '', no: s?.no || '', name: s?.name || '' }))
+                        );
+                    } catch (e) {
+                        console.warn("座號快照初始化異常:", e);
+                    }
+                }
+            }, [data]);
 
             // 雙面列印對齊開關
             const [duplexPadding, setDuplexPadding] = useState(true);
@@ -2384,23 +2402,42 @@ try {
 
             const isHistoryReadOnly = (userRole === UserRole.TEACHER && currentYearId && yearId !== currentYearId) || readOnly;
 
+            // ✅ 草稿暫存與衝突比對狀態
+            const [diffConflict, setDiffConflict] = useState(null);
+            const currentDataRef = useRef(null);
+            useEffect(() => { 
+                currentDataRef.current = data; 
+            }, [data]);
+
             // 即時監控資料變動，只要 dirty 就同步寫入草稿暫存
 useEffect(() => {
     if (dirty && data && yearId && classId) {
-        localStorage.setItem(`junyi_unsaved_draft_${yearId}_${classId}`, JSON.stringify(data));
+        const draftPayload = {
+            savedAt: Date.now(),
+            savedTimeStr: new Date().toLocaleString('zh-TW'),
+            baseVersion: data._version || 0,
+            data: data
+        };
+        localStorage.setItem(`junyi_unsaved_draft_${yearId}_${classId}`, JSON.stringify(draftPayload));
     }
 }, [data, dirty, yearId, classId]);
 
 // 視窗離開或重整時的雙重保障
 useEffect(() => {
     const handleBeforeUnload = () => {
-        if (dirty && currentDataRef.current) {
-            localStorage.setItem(
-                `junyi_unsaved_draft_${yearId}_${classId}`,
-                JSON.stringify(currentDataRef.current)
-            );
-        }
-    };
+    if (dirty && currentDataRef.current) {
+        const draftPayload = {
+            savedAt: Date.now(),
+            savedTimeStr: new Date().toLocaleString('zh-TW'),
+            baseVersion: currentDataRef.current._version || 0,
+            data: currentDataRef.current
+        };
+        localStorage.setItem(
+            `junyi_unsaved_draft_${yearId}_${classId}`,
+            JSON.stringify(draftPayload)
+        );
+    }
+};
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
@@ -2502,59 +2539,107 @@ useEffect(() => {
             };
 
             const loadClassData = async () => {
-                setLoading(true);
-                const cloudResult = await cloudService.getClassData(yearId, classId);
-                if (cloudResult) {
-                    if (!cloudResult.settings) cloudResult.settings = {};
-                    if (!cloudResult.settings.section2Indicators) cloudResult.settings.section2Indicators = ["整潔習慣", "人際互動", "團體合作", "自主學習"];
-                    if (!cloudResult.settings.levels) cloudResult.settings.levels = ["卓越", "優異", "通過", "加油"];
-                    if (!cloudResult.students) cloudResult.students = [];
-                    cloudResult.students.forEach(s => { 
-                        if (s.data && s.data.s2_title === "二、個人整體樣貌與專題表現") s.data.s2_title = "二、個人整體樣貌"; 
-                    });
+    setLoading(true);
+    const cloudResult = await cloudService.getClassData(yearId, classId);
+    let finalClassData = cloudResult;
 
-                    setData(cloudResult);
-                } else {
-                    setData(null);
+    if (cloudResult) {
+        // 檢查是否有未存草稿
+        const rawDraft = localStorage.getItem(`junyi_unsaved_draft_${yearId}_${classId}`);
+        if (rawDraft) {
+            try {
+                const parsedDraft = JSON.parse(rawDraft);
+                // 相容舊格式 (直接存 data) 與新格式 (帶 payload)
+                const draftData = parsedDraft.data || parsedDraft;
+                const draftBaseVersion = parsedDraft.baseVersion ?? draftData._version ?? 0;
+                const draftTime = parsedDraft.savedTimeStr || "稍早";
+
+                // 若雲端版本比草稿基底版本還新，代表其他裝置已存過檔，舊草稿已失效，直接刪除
+                if ((cloudResult._version || 0) > draftBaseVersion) {
+                    localStorage.removeItem(`junyi_unsaved_draft_${yearId}_${classId}`);
+                } else if (!isHistoryReadOnly) {
+                    // 雲端版本一致，但本地有未存草稿，詢問是否還原
+                    const restore = confirm(
+                        `📌 偵測到您在 [${draftTime}] 有一份尚未儲存至雲端的編輯草稿！\n\n` +
+                        `• 按「確定」：還原上次未存草稿（記得點右上角「儲存至雲端」）\n` +
+                        `• 按「取消」：放棄草稿，以雲端現有資料為主`
+                    );
+                    if (restore) {
+                        finalClassData = draftData;
+                        setDirty(true);
+                    } else {
+                        localStorage.removeItem(`junyi_unsaved_draft_${yearId}_${classId}`);
+                    }
                 }
-                setLoading(false);
-                setDirty(false);
-            };
+            } catch (err) {
+                console.warn("草稿解析失敗，移除異常快取:", err);
+                localStorage.removeItem(`junyi_unsaved_draft_${yearId}_${classId}`);
+            }
+        }
+
+        // 後續基礎設定補齊
+        if (!finalClassData.settings) finalClassData.settings = {};
+        if (!finalClassData.settings.section2Indicators) finalClassData.settings.section2Indicators = ["整潔習慣", "人際互動", "團體合作", "自主學習"];
+        if (!finalClassData.settings.levels) finalClassData.settings.levels = ["卓越", "優異", "通過", "加油"];
+        if (!finalClassData.students) finalClassData.students = [];
+        finalClassData.students.forEach(s => { 
+            if (s.data && s.data.s2_title === "二、個人整體樣貌與專題表現") s.data.s2_title = "二、個人整體樣貌"; 
+        });
+
+        setData(finalClassData);
+    } else {
+        setData(null);
+    }
+    setLoading(false);
+};
 
             const saveData = async () => {
-                if (!data || isHistoryReadOnly) return;
-                setSaving(true);
-                
-                // ★ 儲存前先依座號大小進行排序整理
-                const sortedStudents = [...(data.students || [])].sort((a, b) => {
-                    const noA = parseInt(a.no, 10) || 0;
-                    const noB = parseInt(b.no, 10) || 0;
-                    return noA - noB;
-                });
-                const sortedData = { ...data, students: sortedStudents };
+    if (!data || isHistoryReadOnly) return;
+    setSaving(true);
+    
+    // 1. 先依座號大小進行排序整理
+    const sortedStudents = [...(data.students || [])].sort((a, b) => {
+        const noA = parseInt(a.no, 10) || 0;
+        const noB = parseInt(b.no, 10) || 0;
+        return noA - noB;
+    });
+    const sortedData = { ...data, students: sortedStudents };
 
-                // 1. 執行雲端儲存
-                const result = await cloudService.saveClassData(yearId, classId, sortedData);
-                
-                // ★ 子文件存檔成功後，在背景將排序後的名單與班級資訊快照同步給母學年文件
-                if (result.success) {
-                    await cloudService.syncClassToYearDoc(yearId, classId, sortedData);
-                }
+    // 2. 僅儲存各班獨立子文件（評語、指標評量、出席健康在此秒存）
+    const result = await cloudService.saveClassData(yearId, classId, sortedData);
+    
+    if (result.success) {
+        // 3. 檢查座號或學生清單是否真正發生變動
+        const currentStudentsSnap = JSON.stringify(
+            sortedStudents.map(s => ({ id: s.id, no: s.no, name: s.name }))
+        );
+        const hasRosterChanged = initialStudentsSnapRef.current !== currentStudentsSnap;
 
-                setSaving(false);
+        // ✅ 僅在座號順序實質異動時才在背景同步母文件，日常評語存檔絕不觸碰母文件
+        if (hasRosterChanged) {
+            cloudService.syncClassToYearDoc(yearId, classId, sortedData).then(() => {
+                initialStudentsSnapRef.current = currentStudentsSnap;
+            });
+        }// ✅ 存檔成功，立即清空本地未存草稿
+    try {
+        localStorage.removeItem(`junyi_unsaved_draft_${yearId}_${classId}`);
+    } catch (e) {
+        console.warn("清除本地草稿失敗:", e);
+    }
 
-                if (result.success) { 
-                    setData({ ...sortedData, _version: result.newVersion });
-                    setDirty(false); 
-                    setLastSaved(new Date().toLocaleTimeString());
-                    alert("✅ 資料已成功排序並同步至 Firestore 雲端資料庫！"); 
-                } else if (result.conflict) {
-        // 🔥 存檔衝突：直接啟動比對視窗，比對本地與雲端資料
+        setSaving(false);
+        setData({ ...sortedData, _version: result.newVersion });
+        setDirty(false); 
+        setLastSaved(new Date().toLocaleTimeString());
+        alert("✅ 資料已成功儲存至雲端！"); 
+    } else if (result.conflict) {
+        setSaving(false);
         setDiffConflict({
             local: data,
             cloud: result.cloudData
         });
     } else { 
+        setSaving(false);
         alert("❌ 儲存失敗，請檢查網路連線或專案設定：" + (result.error || "")); 
     }
 };
@@ -2591,15 +2676,17 @@ useEffect(() => {
             };
 
             const handleYearChangeInternal = (newYearId) => {
-                if (dirty) {
-                    if (!confirm("您有尚未儲存的變更，切換學年將會遺失變更，是否繼續？")) {
-                        return;
-                    }
-                }
-                if (onSelectYear) {
-                    onSelectYear(newYearId);
-                }
-            };
+    if (dirty) {
+        if (!confirm("您有尚未儲存的變更，切換學年將會遺失變更，是否繼續？")) {
+            return;
+        }
+        // 放棄變更時清掉草稿
+        localStorage.removeItem(`junyi_unsaved_draft_${yearId}_${classId}`);
+    }
+    if (onSelectYear) {
+        onSelectYear(newYearId);
+    }
+};
 
             if (loading) return <div className="flex flex-col h-screen items-center justify-center bg-slate-50 gap-4"><Loader2 className="w-10 h-10 text-indigo-500 animate-spin" /><span className="text-slate-400 font-bold tracking-widest uppercase text-xs">正在從雲端載入資料庫...</span></div>;
 
@@ -3118,21 +3205,25 @@ useEffect(() => {
         localData={diffConflict.local}
         cloudData={diffConflict.cloud}
         onResolve={async (mergedData) => {
-            setDiffConflict(null);
-            setData(mergedData);
-            // 立即執行存檔寫入雲端
-            setSaving(true);
-            const saveRes = await cloudService.saveClassData(yearId, classId, mergedData);
-            setSaving(false);
-            if (saveRes.success) {
-                setData(prev => ({ ...prev, _version: saveRes.newVersion }));
-                setDirty(false);
-                setLastSaved(new Date().toLocaleTimeString());
-                alert("✅ 已成功依您的決定合併並完成雲端存檔！");
-            } else {
-                alert("❌ 合併儲存失敗：" + saveRes.error);
-            }
-        }}
+    setDiffConflict(null);
+    setData(mergedData);
+    setSaving(true);
+    const saveRes = await cloudService.saveClassData(yearId, classId, mergedData);
+    setSaving(false);
+    if (saveRes.success) {
+    try {
+        localStorage.removeItem(`junyi_unsaved_draft_${yearId}_${classId}`);
+    } catch (e) {
+        console.warn("清除本地草稿失敗:", e);
+    }
+    setData(prev => ({ ...prev, _version: saveRes.newVersion }));
+    setDirty(false);
+        setLastSaved(new Date().toLocaleTimeString());
+        alert("✅ 已成功依您的決定合併並完成雲端存檔！");
+    } else {
+        alert("❌ 合併儲存失敗：" + saveRes.error);
+    }
+}}
         onDiscard={() => setDiffConflict(null)}
     />
 )}                </>
