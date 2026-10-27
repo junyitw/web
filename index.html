@@ -676,6 +676,64 @@ async batchSaveClassAndSyncYear(yearId, classId, classData) {
 
         const cloudService = new FirestoreService();
 
+function syncStudentIndicatorsWithSettings(student, currentSettings) {
+    if (!student) return student;
+    const studentData = student.data || {};
+    const configS2 = currentSettings?.section2Indicators || [];
+    const currentS2Inds = studentData.indicators || [];
+    const subjects = currentSettings?.subjects || [];
+
+    // 1. 同步「二、個人整體樣貌」指標
+    const updatedS2Inds = configS2.map((name, idx) => {
+        const byName = currentS2Inds.find(o => o.name === name);
+        if (byName) return byName;
+
+        const byIndex = currentS2Inds[idx];
+        if (byIndex) {
+            return {
+                name: name,
+                score: byIndex.score || 0,
+                remark: byIndex.remark || ""
+            };
+        }
+        return { name, score: 0, remark: "" };
+    });
+
+    // 2. 同步「三/四、各學科指標」
+    const nextSubGrades = {};
+    subjects.forEach(sub => {
+        const existingSub = (studentData.subGrades && studentData.subGrades[sub.name]) || { comment: "", indicators: [] };
+        const currentSubInds = existingSub.indicators || [];
+
+        nextSubGrades[sub.name] = {
+            comment: existingSub.comment || "",
+            indicators: (sub.indicators || []).map((name, idx) => {
+                const byName = currentSubInds.find(o => o.name === name);
+                if (byName) return byName;
+
+                const byIndex = currentSubInds[idx];
+                if (byIndex) {
+                    return {
+                        name: name,
+                        score: byIndex.score || 0,
+                        remark: byIndex.remark || ""
+                    };
+                }
+                return { name, score: 0, remark: "" };
+            })
+        };
+    });
+
+    return {
+        ...student,
+        data: {
+            ...studentData,
+            indicators: updatedS2Inds,
+            subGrades: nextSubGrades
+        }
+    };
+}
+
         // --- 輔助演算法：計算單一學生各維度填寫狀態與缺漏錨點 ---
         function checkStudentProgress(student, settings) {
             const data = student.data || {};
@@ -1498,6 +1556,7 @@ const ConflictDiffModal = ({ localData, cloudData, onResolve, onDiscard }) => {
                 onChange({ ...student, data: { ...student.data, subGrades: newSubGrades } });
             };
 
+            // ★ StudentEditor 內部的單一 useEffect：指標名稱變更時平滑保留既有評分與備註
             useEffect(() => {
                 if (readOnly) return;
 
@@ -1505,9 +1564,11 @@ const ConflictDiffModal = ({ localData, cloudData, onResolve, onDiscard }) => {
                 const configS2 = section2Config || [];
                 const currentS2Inds = currentData.indicators || [];
 
+                // 檢查第二部分（個人整體樣貌）指標是否與班級設定不一致
                 const isS2Mismatch = configS2.length !== currentS2Inds.length || 
                                      configS2.some((name, i) => name !== currentS2Inds[i]?.name);
 
+                // 檢查第三/四部分（各學科）指標是否與班級設定不一致
                 const settingSubjectNames = subjects.map(s => s.name);
                 const currentStudentSubNames = Object.keys(currentData.subGrades || {});
                 
@@ -1525,17 +1586,25 @@ const ConflictDiffModal = ({ localData, cloudData, onResolve, onDiscard }) => {
                 if (isS2Mismatch || isSubMismatch) {
                     const nextData = { ...currentData }; 
 
+                    // 1. 第二部分（個人整體樣貌）溫和同步機制
                     if (isS2Mismatch) {
-                        nextData.indicators = configS2.map(name => {
-                            const existing = currentS2Inds.find(o => o.name === name);
-                            return { 
-                                name, 
-                                score: existing ? existing.score : 0, 
-                                remark: existing ? (existing.remark || "") : "" 
-                            };
+                        nextData.indicators = configS2.map((name, idx) => {
+                            const byName = currentS2Inds.find(o => o.name === name);
+                            if (byName) return byName;
+
+                            const byIndex = currentS2Inds[idx];
+                            if (byIndex) {
+                                return {
+                                    name: name,
+                                    score: byIndex.score || 0,
+                                    remark: byIndex.remark || ""
+                                };
+                            }
+                            return { name, score: 0, remark: "" };
                         });
                     }
 
+                    // 2. 第三/四部分（學科指標）溫和同步機制
                     if (isSubMismatch) {
                         const nextSubGrades = {};
                         subjects.forEach(sub => {
@@ -1549,13 +1618,19 @@ const ConflictDiffModal = ({ localData, cloudData, onResolve, onDiscard }) => {
                                 const currentSubInds = existingSub.indicators || [];
                                 nextSubGrades[sub.name] = {
                                     ...existingSub,
-                                    indicators: sub.indicators.map(name => {
-                                        const existingInd = currentSubInds.find(o => o.name === name);
-                                        return { 
-                                            name, 
-                                            score: existingInd ? existingInd.score : 0, 
-                                            remark: existingInd ? (existingInd.remark || "") : "" 
-                                        };
+                                    indicators: sub.indicators.map((name, idx) => {
+                                        const byName = currentSubInds.find(o => o.name === name);
+                                        if (byName) return byName;
+
+                                        const byIndex = currentSubInds[idx];
+                                        if (byIndex) {
+                                            return {
+                                                name: name,
+                                                score: byIndex.score || 0,
+                                                remark: byIndex.remark || ""
+                                            };
+                                        }
+                                        return { name, score: 0, remark: "" };
                                     })
                                 };
                             }
@@ -2596,7 +2671,12 @@ useEffect(() => {
         finalClassData.students.forEach(s => { 
             if (s.data && s.data.s2_title === "二、個人整體樣貌與專題表現") s.data.s2_title = "二、個人整體樣貌"; 
         });
-
+// 在 loadClassData 結尾 setData(finalClassData) 之前加上：
+if (finalClassData && Array.isArray(finalClassData.students) && finalClassData.settings) {
+    finalClassData.students = finalClassData.students.map(s => 
+        syncStudentIndicatorsWithSettings(s, finalClassData.settings)
+    );
+}
         setData(finalClassData);
     } else {
         setData(null);
@@ -2674,17 +2754,25 @@ useEffect(() => {
             };
 
             const handleClassSettingChange = (field, value) => {
-                if (!data || isHistoryReadOnly) return;
-                setData({ ...data, settings: { ...data.settings, [field]: value } });
-                setDirty(true);
-            };
+    if (!data || isHistoryReadOnly) return;
+    const nextSettings = { ...data.settings, [field]: value };
+    
+    // ★ 若變動的是個人整體樣貌指標或學科，同步洗過全班名單
+    let nextStudents = data.students || [];
+    if (field === 'section2Indicators' || field === 'subjects') {
+        nextStudents = nextStudents.map(s => syncStudentIndicatorsWithSettings(s, nextSettings));
+    }
 
-            const handleUpdateSubject = (idx, updated) => {
-                if (!data || isHistoryReadOnly) return;
-                const newSubjects = [...data.settings.subjects];
-                newSubjects[idx] = updated;
-                handleClassSettingChange('subjects', newSubjects);
-            };
+    setData({ ...data, settings: nextSettings, students: nextStudents });
+    setDirty(true);
+};
+
+const handleUpdateSubject = (idx, updated) => {
+    if (!data || isHistoryReadOnly) return;
+    const newSubjects = [...data.settings.subjects];
+    newSubjects[idx] = updated;
+    handleClassSettingChange('subjects', newSubjects);
+};
 
             const handleYearChangeInternal = (newYearId) => {
     if (dirty) {
@@ -2829,11 +2917,20 @@ useEffect(() => {
                                                 </div>
                                             </div>
                                             <button 
-                                                onClick={() => setViewMode('batch-preview')} 
-                                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-2xl font-black flex items-center gap-2 transition shadow-xl active:scale-95 text-sm"
-                                            >
-                                                <Printer size={18} /> 🖨️ 全班一鍵匯出 PDF / 列印
-                                            </button>
+    onClick={() => {
+        // ★ 進入批次列印前，確保全體學生指標 100% 符合最新班級設定
+        if (data && data.students && data.settings) {
+            const guaranteedStudents = data.students.map(s => 
+                syncStudentIndicatorsWithSettings(s, data.settings)
+            );
+            setData(prev => ({ ...prev, students: guaranteedStudents }));
+        }
+        setViewMode('batch-preview');
+    }} 
+    className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-2xl font-black flex items-center gap-2 transition shadow-xl active:scale-95 text-sm"
+>
+    <Printer size={18} /> 🖨️ 全班一鍵匯出 PDF / 列印
+</button>
                                         </div>
                                         <div className="grid grid-cols-3 gap-6">
                                             <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
@@ -2984,7 +3081,18 @@ useEffect(() => {
                                     <div className="grid gap-6">
                                         {((data.settings || {}).subjects || []).map((sub, idx) => (
                                             <div key={idx} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative">
-                                                {!isHistoryReadOnly && <button className="absolute top-4 right-4 text-red-400 hover:text-red-600" onClick={() => { const newSubs = [...data.settings.subjects]; newSubs.splice(idx, 1); setData({...data, settings: {...data.settings, subjects: newSubs}}); setDirty(true); }}>刪除</button>}
+{!isHistoryReadOnly && (
+    <button 
+        className="absolute top-4 right-4 text-red-400 hover:text-red-600" 
+        onClick={() => { 
+            const newSubs = [...data.settings.subjects]; 
+            newSubs.splice(idx, 1); 
+            handleClassSettingChange('subjects', newSubs);
+        }}
+    >
+        刪除
+    </button>
+)}
                                                 <div className="space-y-4 mb-6">
                                                     <div>
                                                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block tracking-widest">學科名稱 Subject Name</label>
