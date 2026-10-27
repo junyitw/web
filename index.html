@@ -123,7 +123,7 @@ import {
         import { initializeApp } from 'firebase/app';
         import { 
             initializeFirestore, doc, getDoc, setDoc, updateDoc, 
-            collection, getDocs, deleteDoc, writeBatch 
+            collection, getDocs, deleteDoc, writeBatch, runTransaction 
         } from 'firebase/firestore';
 
         const firebaseConfig = {
@@ -201,55 +201,6 @@ import {
                     students: []
                 }));
             }
-// 同步單一班級的最小快照（名稱、導師、學生基礎清單）至母學年文件
-async syncClassToYearDoc(yearId, classId, classData) {
-    try {
-        const yearUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/years/${yearId}`;
-        const yRes = await fetch(yearUrl);
-        if (!yRes.ok) return false;
-        
-        const yJson = await yRes.json();
-        const yFields = {};
-        for (const k of Object.keys(yJson.fields || {})) {
-            yFields[k] = fromFirestoreFormat(yJson.fields[k]);
-        }
-        
-        // 僅保留學生身分識別資訊（id, no, name），評量細項留於子文件
-        const minimalStudents = (classData.students || []).map(s => ({
-            id: s.id,
-            no: s.no,
-            name: s.name
-        }));
-
-        const mentorName = classData.settings?.mentor || classData.mentor || "未指定";
-        const clsName = classData.name || classData.settings?.className || "未命名班級";
-
-        const updatedClasses = (yFields.classes || []).map(c => {
-            if (c.id === classId) {
-                return {
-                    id: c.id,
-                    name: clsName,
-                    mentor: mentorName,
-                    settings: {
-                        className: clsName,
-                        mentor: mentorName
-                    },
-                    students: minimalStudents
-                };
-            }
-            return c;
-        });
-
-        await this.saveDocRest(`years/${yearId}`, {
-            ...yFields,
-            classes: updatedClasses
-        });
-        return true;
-    } catch (e) {
-        console.error("同步母學年快照失敗:", e);
-        return false;
-    }
-}
             async exportDatabase() {
     try {
         const years = await this.getAllYears();
@@ -621,18 +572,76 @@ if (cloudVersion > localVersion) {
                     if (!cls) return false;
                     cls.students = (cls.students || []).filter(s => s.id !== studentId);
                     
-                    const subRes = await this.saveClassData(yearId, classId, cls);
-                    if (!subRes.success) return false;
-
-                    // 統一使用 syncClassToYearDoc 保持母文件同步
-                    await this.syncClassToYearDoc(yearId, classId, cls);
-                    return true;
+                    // 改用批次一次原子寫入
+                    const res = await this.batchSaveClassAndSyncYear(yearId, classId, cls);
+                    return res.success;
                 } catch (e) {
                     console.error("刪除學生同步失敗:", e);
                     return false;
                 }
             }
+// 使用 Firestore 事務鎖定，保證不同班同時存檔時母文件自動排隊合併
+async batchSaveClassAndSyncYear(yearId, classId, classData) {
+    try {
+        const yearRef = doc(db, 'years', yearId);
+        const classRef = doc(db, `years/${yearId}/classes`, classId);
 
+        // 1. 準備精簡版學生清單與班級資訊快照
+        const minimalStudents = (classData.students || []).map(s => ({
+            id: s.id,
+            no: s.no,
+            name: s.name
+        }));
+        const mentorName = classData.settings?.mentor || classData.mentor || "未指定";
+        const clsName = classData.name || classData.settings?.className || "未命名班級";
+
+        // 2. 處理子文件的版本號累加
+        const nextVersion = (classData._version || 0) + 1;
+        const updatedClassData = {
+            ...classData,
+            _version: nextVersion,
+            _lastUpdated: new Date().toLocaleString('zh-TW')
+        };
+
+        // 3. 進入事務操作：若母文件在讀取與寫入間被其他班修改，Firestore 會自動重試合併
+        await runTransaction(db, async (transaction) => {
+            const yearDoc = await transaction.get(yearRef);
+            if (!yearDoc.exists()) {
+                throw new Error(`找不到學年母文件: ${yearId}`);
+            }
+
+            const currentYearData = yearDoc.data();
+            const updatedClasses = (currentYearData.classes || []).map(c => {
+                if (c.id === classId) {
+                    return {
+                        id: c.id,
+                        name: clsName,
+                        mentor: mentorName,
+                        settings: {
+                            className: clsName,
+                            mentor: mentorName
+                        },
+                        students: minimalStudents
+                    };
+                }
+                return c;
+            });
+
+            // 寫入子文件完整內容
+            transaction.set(classRef, updatedClassData);
+            // 原子更新母文件快照名冊
+            transaction.update(yearRef, { classes: updatedClasses });
+        });
+
+        // 4. 更新本地快取
+        localStorage.setItem(`junyi_cache_${yearId}_${classId}`, JSON.stringify(updatedClassData));
+
+        return { success: true, newVersion: nextVersion };
+    } catch (e) {
+        console.error("事務原子更新失敗:", e);
+        return { success: false, error: e.message };
+    }
+}
             async updatePassword(username, newPass) {
                 try {
                     await this.saveDocRest(`users/${username}`, { password: newPass });
@@ -652,12 +661,9 @@ if (cloudVersion > localVersion) {
                     cls.settings.className = name;
                     cls.settings.mentor = mentor;
 
-                    const subRes = await this.saveClassData(yearId, classId, cls);
-                    if (!subRes.success) return false;
-
-                    // 統一使用 syncClassToYearDoc 同步班名與導師
-                    await this.syncClassToYearDoc(yearId, classId, cls);
-                    return true;
+                    // 改用批次一次原子寫入
+                    const res = await this.batchSaveClassAndSyncYear(yearId, classId, cls);
+                    return res.success;
                 } catch (e) {
                     console.error("更新班級資訊失敗", e);
                     return false;
@@ -795,7 +801,7 @@ if (cloudVersion > localVersion) {
                                 </div>
                             </div>
                             <h1 className="text-3xl font-black text-slate-800 mb-2">均一質性評量系統</h1>
-                            <p className="text-indigo-500 text-sm font-bold tracking-widest uppercase">多學年雲端管理版20261025版</p>
+                            <p className="text-indigo-500 text-sm font-bold tracking-widest uppercase">多學年雲端管理版20261027版</p>
                         </div>
                         <form onSubmit={handleSubmit} className="space-y-6">
                             <div>
@@ -2131,9 +2137,14 @@ const ConflictDiffModal = ({ localData, cloudData, onResolve, onDiscard }) => {
                     }
                 }));
                 const updatedClass = { ...currentClass, students: [...(currentClass.students || []), ...newStudents] };
-                await cloudService.saveClassData(selectedYearId, importModal.classId, updatedClass);
-                // ★ 補上這行：立即同步母學年快照，確保全校搜尋與自動升級能抓到新匯入名單
-                await cloudService.syncClassToYearDoc(selectedYearId, importModal.classId, updatedClass);
+                
+                // 改用原子批次寫入
+                const res = await cloudService.batchSaveClassAndSyncYear(selectedYearId, importModal.classId, updatedClass);
+                if (!res.success) {
+                    alert("匯入失敗：" + res.error);
+                    return;
+                }
+
                 setImportModal({show: false, classId: '', className: ''});
                 setBulkNames('');
                 loadData(selectedYearId);
@@ -2617,10 +2628,10 @@ useEffect(() => {
 
         // ✅ 僅在座號順序實質異動時才在背景同步母文件，日常評語存檔絕不觸碰母文件
         if (hasRosterChanged) {
-            cloudService.syncClassToYearDoc(yearId, classId, sortedData).then(() => {
+            cloudService.batchSaveClassAndSyncYear(yearId, classId, { ...sortedData, _version: result.newVersion - 1 }).then(() => {
                 initialStudentsSnapRef.current = currentStudentsSnap;
             });
-        }// ✅ 存檔成功，立即清空本地未存草稿
+        }
     try {
         localStorage.removeItem(`junyi_unsaved_draft_${yearId}_${classId}`);
     } catch (e) {
