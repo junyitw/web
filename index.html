@@ -324,8 +324,10 @@ import {
                 }
             }
 
-            async importLegacyDb(dbJson) {
+            // FirestoreService 類別內替換：
+async importLegacyDb(dbJson, selectedYearIds = null) {
     try {
+        // 1. 僅在管理者未提供選取學年時（或顯式指定全覆蓋），才同步/初始化使用者帳號
         const users = (dbJson.users && dbJson.users.length > 0) ? dbJson.users : [
             { id: 'admin', username: 'admin', password: 'je223301', role: UserRole.ADMIN },
             { id: 'viewer', username: 'viewer', password: 'viewer', role: UserRole.VIEWER },
@@ -338,15 +340,27 @@ import {
             }))
         ];
 
-        for (const u of users) {
-            await this.saveDocRest(`users/${u.username}`, u);
+        // 僅當全量覆蓋時更新全域使用者，避免特定學年匯入干擾現行密碼
+        if (!selectedYearIds) {
+            for (const u of users) {
+                await this.saveDocRest(`users/${u.username}`, u);
+            }
         }
 
-        const years = dbJson.years || [];
-        for (const y of years) {
+        const allYears = dbJson.years || [];
+        // 2. 依據 selectedYearIds 過濾需要寫入的學年
+        const targetYears = selectedYearIds && Array.isArray(selectedYearIds)
+            ? allYears.filter(y => selectedYearIds.includes(y.id))
+            : allYears;
+
+        if (targetYears.length === 0) {
+            throw new Error("未選取任何有效學年進行匯入。");
+        }
+
+        for (const y of targetYears) {
             const classes = y.classes || [];
 
-            // ✅ 修正 1：寫入母文件前進行瘦身過濾，避免母文件突破 1MB 上限
+            // 寫入母文件前進行瘦身過濾，避免突破 1MB 上限
             const minimalClasses = classes.map(cls => ({
                 id: cls.id,
                 name: cls.name,
@@ -370,17 +384,23 @@ import {
                 createdAt: y.createdAt || Date.now()
             });
 
-            // ✅ 完整詳細資料（含所有評語、指標勾選、出席健康）精準寫入各班子文件
+            // 完整班級詳細資料（評語、指標勾選、出席健康等）寫入子文件
             for (const cls of classes) {
                 await this.saveDocRest(`years/${y.id}/classes/${cls.id}`, cls);
             }
         }
 
-        // ✅ 修正 2：清空本地所有快取與未存草稿，徹底防止舊版本覆寫剛匯入的資料
+        // 3. 清理受影響學年的本地快取與未存草稿，防止舊暫存污染介面
         try {
+            const targetYearIdSet = new Set(targetYears.map(y => y.id));
             Object.keys(localStorage).forEach(key => {
-                if (key.startsWith('junyi_cache_') || key.startsWith('junyi_unsaved_draft_')) {
-                    localStorage.removeItem(key);
+                const isTargetCache = Array.from(targetYearIdSet).some(yId => 
+                    key.startsWith(`junyi_cache_${yId}_`) || key.startsWith(`junyi_unsaved_draft_${yId}_`)
+                );
+                if (isTargetCache || !selectedYearIds) {
+                    if (key.startsWith('junyi_cache_') || key.startsWith('junyi_unsaved_draft_')) {
+                        localStorage.removeItem(key);
+                    }
                 }
             });
         } catch (storageErr) {
@@ -389,7 +409,7 @@ import {
 
         return true;
     } catch (e) {
-        console.error("遷移舊資料失敗:", e);
+        console.error("遷移/匯入資料失敗:", e);
         throw e;
     }
 }
@@ -2084,7 +2104,150 @@ const ConflictDiffModal = ({ localData, cloudData, onResolve, onDiscard }) => {
             );
         };
 
-        // 4.6 AdminDashboard Component
+        // 4.6.0 強化版 ImportYearSelectModal（支援全選/全取消、精準單選勾選）
+const ImportYearSelectModal = ({ availableYears, onConfirm, onCancel, loading }) => {
+    const [mode, setMode] = useState('selected'); // 'all' | 'selected'
+    // 預設將解析到的學年全數勾選，方便管理者微調取消
+    const [selectedIds, setSelectedIds] = useState(
+        availableYears.map(y => y.id)
+    );
+
+    const toggleYear = (id) => {
+        setSelectedIds(prev => 
+            prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+        );
+    };
+
+    const selectAllYears = () => setSelectedIds(availableYears.map(y => y.id));
+    const clearAllYears = () => setSelectedIds([]);
+
+    const handleConfirm = () => {
+        if (mode === 'selected') {
+            if (selectedIds.length === 0) {
+                alert("請至少勾選一個欲匯入的學年！");
+                return;
+            }
+            onConfirm(selectedIds);
+        } else {
+            onConfirm(null); // null 代表全部學年完整覆蓋
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70]">
+            <div className="bg-white p-8 rounded-3xl w-[520px] shadow-2xl animate-in zoom-in duration-200 border border-slate-100">
+                <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                        <FileUp className="text-emerald-600" size={24} />
+                        <h3 className="text-xl font-black text-slate-900">選擇匯入範圍與學年</h3>
+                    </div>
+                    <button onClick={onCancel} disabled={loading} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400">
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                    在備份檔案中已成功解析出 <span className="font-bold text-indigo-600">{availableYears.length}</span> 個學年資料。請選擇匯入模式：
+                </p>
+
+                {/* 模式選擇 */}
+                <div className="space-y-3 mb-6">
+                    <label className={`flex items-start gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition ${mode === 'all' ? 'border-amber-500 bg-amber-50/40 ring-1 ring-amber-400/20' : 'border-slate-100 hover:border-slate-200'}`}>
+                        <input 
+                            type="radio" 
+                            name="import_mode" 
+                            className="mt-1 accent-amber-600 cursor-pointer" 
+                            checked={mode === 'all'} 
+                            onChange={() => setMode('all')} 
+                        />
+                        <div>
+                            <div className="font-bold text-sm text-slate-800">全部學年完整覆蓋</div>
+                            <div className="text-[11px] text-amber-700 mt-0.5 font-medium">包含全校歷年班級與帳號，將完整套用備份內容。</div>
+                        </div>
+                    </label>
+
+                    <label className={`flex items-start gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition ${mode === 'selected' ? 'border-indigo-600 bg-indigo-50/40 ring-1 ring-indigo-500/20' : 'border-slate-100 hover:border-slate-200'}`}>
+                        <input 
+                            type="radio" 
+                            name="import_mode" 
+                            className="mt-1 accent-indigo-600 cursor-pointer" 
+                            checked={mode === 'selected'} 
+                            onChange={() => setMode('selected')} 
+                        />
+                        <div className="w-full">
+                            <div className="flex justify-between items-center">
+                                <div className="font-bold text-sm text-slate-800">僅匯入勾選的學年</div>
+                                {mode === 'selected' && (
+                                    <div className="flex gap-2">
+                                        <button 
+                                            type="button"
+                                            onClick={(e) => { e.preventDefault(); selectAllYears(); }}
+                                            className="text-[11px] text-indigo-600 hover:underline font-bold"
+                                        >
+                                            全選
+                                        </button>
+                                        <span className="text-slate-300 text-[11px]">|</span>
+                                        <button 
+                                            type="button"
+                                            onClick={(e) => { e.preventDefault(); clearAllYears(); }}
+                                            className="text-[11px] text-slate-400 hover:underline font-bold"
+                                        >
+                                            取消全選
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 mb-2 font-medium">僅覆寫特定學年的母文件與班級子文件（未勾選學年完整保留）。</div>
+
+                            {/* 學年勾選清單 */}
+                            <div className={`mt-3 pt-3 border-t border-slate-200/60 max-h-48 overflow-y-auto space-y-2 custom-scrollbar pr-1 ${mode !== 'selected' ? 'opacity-40 pointer-events-none' : ''}`}>
+                                {availableYears.map(y => {
+                                    const checked = selectedIds.includes(y.id);
+                                    return (
+                                        <div 
+                                            key={y.id} 
+                                            onClick={() => toggleYear(y.id)}
+                                            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold cursor-pointer transition select-none ${checked ? 'bg-white border-indigo-400 text-indigo-700 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                                        >
+                                            <div className="flex items-center gap-2.5">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={checked} 
+                                                    onChange={() => {}} 
+                                                    className="w-4 h-4 accent-indigo-600 rounded cursor-pointer" 
+                                                />
+                                                <span>{y.name}</span>
+                                            </div>
+                                            <span className="font-mono text-[10px] text-slate-400">ID: {y.id}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
+                <div className="flex gap-3">
+                    <button 
+                        onClick={onCancel} 
+                        disabled={loading} 
+                        className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition text-sm"
+                    >
+                        取消
+                    </button>
+                    <button 
+                        onClick={handleConfirm} 
+                        disabled={loading} 
+                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg transition flex items-center justify-center gap-2 text-sm"
+                    >
+                        {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                        確認開始匯入
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
         const AdminDashboard = ({ onLogout, onViewClass, onViewStudent, userRole }) => {
             const [years, setYears] = useState([]);
             const [selectedYearId, setSelectedYearId] = useState('');
@@ -2103,6 +2266,12 @@ const ConflictDiffModal = ({ localData, cloudData, onResolve, onDiscard }) => {
             const [processingYear, setProcessingYear] = useState(false);
             const [deletingYear, setDeletingYear] = useState(false);
             const [deletingStudentId, setDeletingStudentId] = useState(null);
+// 新增此行 State 宣告：
+const [importYearSelectModal, setImportYearSelectModal] = useState({
+    show: false,
+    json: null,
+    years: []
+});
             const isReadOnly = userRole === UserRole.VIEWER;
 
             useEffect(() => { loadData(); }, []);
@@ -2261,73 +2430,32 @@ const ConflictDiffModal = ({ localData, cloudData, onResolve, onDiscard }) => {
     <input type="file" accept=".json" className="hidden" onChange={async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        
-        // 1. 操作前確認提問
-        const confirmed = confirm(
-            `⚠️ 注意：匯入備份將會覆寫線上的同名學年與班級資料！\n\n系統會在執行前「自動下載一份當前線上版本的安全快照」，確保您可以隨時還原。\n\n確定要繼續匯入「${file.name}」嗎？`
-        );
-        if (!confirmed) {
-            e.target.value = ''; // 重置 input 選擇
-            return;
-        }
 
         try {
             const text = await file.text();
             const parsed = JSON.parse(text);
-            setLoading(true);
 
-            // 2. ★ 修正後的安全快照機制：完整打包所有學年與班級子文件 ★
-try {
-    const nowStr = new Date().toISOString().replace(/[:.]/g, '-');
-    const currentYears = await cloudService.getAllYears();
-    const fullYears = [];
+            if (!parsed.years || !Array.isArray(parsed.years) || parsed.years.length === 0) {
+                alert("❌ 檔案解析失敗：未包含任何學年資料 (years)！");
+                return;
+            }
 
-    // 正確為每個學年抓取包含評語的完整子文件班級資料
-    for (const y of currentYears) {
-        const fullClasses = [];
-        for (const cls of (y.classes || [])) {
-            const fullClass = await cloudService.getClassData(y.id, cls.id);
-            fullClasses.push(fullClass || cls);
-        }
-        fullYears.push({
-            ...y,
-            classes: fullClasses
-        });
-    }
+            // 解析 JSON 包含的所有學年名稱與 ID
+            const parsedYears = parsed.years.map(y => ({
+                id: y.id,
+                name: y.name || y.id
+            }));
 
-    const usersSnap = await getDocs(collection(db, 'users'));
-    const currentUsers = usersSnap.docs.map(d => d.data());
-
-    const snapshotData = {
-        exportDate: new Date().toISOString(),
-        version: "2.1",
-        note: "匯入覆蓋前自動安全快照 (Auto Backup Before Import)",
-        users: currentUsers,
-        years: fullYears // ✅ 寫入完整資料，還原時各班評語才能完好如初
-    };
-
-    const blob = new Blob([JSON.stringify(snapshotData, null, 2)], { type: 'application/json' });
-    const snapUrl = URL.createObjectURL(blob);
-    const snapLink = document.createElement('a');
-    snapLink.href = snapUrl;
-    snapLink.download = `均一評量_匯入前安全快照_${nowStr}.json`;
-    snapLink.click();
-    URL.revokeObjectURL(snapUrl);
-} catch (snapErr) {
-    console.warn("自動快照產出異常，但仍允許匯入流程繼續:", snapErr);
-}
-
-            // 3. 執行正式資料庫覆寫
-            await cloudService.importLegacyDb(parsed);
-            alert("✅ 匯入成功！舊備份資料已全數寫入 Firestore 資料庫。\n（線上前一版已為您自動下載為安全快照存於電腦）");
-            
-            const latestYId = parsed.years && parsed.years.length > 0 ? parsed.years[parsed.years.length - 1].id : null;
-            await loadData(latestYId);
+            // 開啟學年選取 Modal
+            setImportYearSelectModal({
+                show: true,
+                json: parsed,
+                years: parsedYears
+            });
         } catch (err) {
-            alert("❌ 匯入失敗：" + err.message);
+            alert("❌ 讀取 JSON 失敗：" + err.message);
         } finally {
-            setLoading(false);
-            e.target.value = ''; // 重置選擇以便下次可選取同名檔案
+            e.target.value = '';
         }
     }} />
 </label>
@@ -2433,6 +2561,69 @@ try {
                     {importModal.show && <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]"><div className="bg-white p-8 rounded-3xl w-[500px] shadow-2xl animate-in zoom-in duration-200"><h3 className="text-xl font-bold mb-2">批次匯入學生名單</h3><p className="text-xs text-slate-400 mb-4">每一行輸入一個姓名，系統將自動編號並加入班級。</p><textarea placeholder="張曉明&#10;李小華&#10;王大同" className="w-full border-2 border-slate-100 p-4 rounded-xl mb-6 h-60 outline-none focus:border-indigo-500 transition-colors font-mono text-sm leading-relaxed" value={bulkNames} onChange={(e) => setBulkNames(e.target.value)} /><div className="flex gap-3"><button onClick={() => setImportModal({show: false, classId: '', className: ''})} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition">取消</button><button onClick={handleBulkImport} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition">確認匯入</button></div></div></div>}
 
                     {resetModal.show && <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]"><div className="bg-white p-8 rounded-3xl w-96 shadow-2xl animate-in zoom-in duration-200"><h3 className="text-xl font-bold mb-4">重設導師登入密碼</h3><p className="text-xs text-slate-400 mb-4">修改後，導師需使用新密碼進行登入作業。</p><input type="text" value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder="輸入新密碼" className="w-full border-2 border-slate-100 p-3 rounded-xl mb-8 outline-none focus:border-indigo-500 font-bold text-center text-lg tracking-widest" /><div className="flex gap-2"><button onClick={() => setResetModal({show: false, username: ''})} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition">取消</button><button onClick={handlePasswordReset} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg transition hover:bg-indigo-700">確認更新</button></div></div></div>}
+{/* ★ 匯入學年選取與備份執行 Modal ★ */}
+{importYearSelectModal.show && (
+    <ImportYearSelectModal 
+        availableYears={importYearSelectModal.years}
+        loading={loading}
+        onCancel={() => setImportYearSelectModal({ show: false, json: null, years: [] })}
+        onConfirm={async (selectedYearIds) => {
+            const dbJson = importYearSelectModal.json;
+            setLoading(true);
+
+            // 1. 自動建立安全快照
+            try {
+                const nowStr = new Date().toISOString().replace(/[:.]/g, '-');
+                const currentYears = await cloudService.getAllYears();
+                const fullYears = [];
+
+                for (const y of currentYears) {
+                    const fullClasses = [];
+                    for (const cls of (y.classes || [])) {
+                        const fullClass = await cloudService.getClassData(y.id, cls.id);
+                        fullClasses.push(fullClass || cls);
+                    }
+                    fullYears.push({ ...y, classes: fullClasses });
+                }
+
+                const usersSnap = await getDocs(collection(db, 'users'));
+                const currentUsers = usersSnap.docs.map(d => d.data());
+
+                const snapshotData = {
+                    exportDate: new Date().toISOString(),
+                    version: "2.1",
+                    note: "匯入覆蓋前自動安全快照",
+                    users: currentUsers,
+                    years: fullYears
+                };
+
+                const blob = new Blob([JSON.stringify(snapshotData, null, 2)], { type: 'application/json' });
+                const snapUrl = URL.createObjectURL(blob);
+                const snapLink = document.createElement('a');
+                snapLink.href = snapUrl;
+                snapLink.download = `均一評量_匯入前安全快照_${nowStr}.json`;
+                snapLink.click();
+                URL.revokeObjectURL(snapUrl);
+            } catch (snapErr) {
+                console.warn("自動快照產出異常，但仍允許匯入流程繼續:", snapErr);
+            }
+
+            // 2. 執行匯入
+            try {
+                await cloudService.importLegacyDb(dbJson, selectedYearIds);
+                alert("✅ 匯入成功！已更新指定學年的資料庫。\n（線上前一版已為您自動下載為安全快照存於電腦）");
+                
+                const targetFocusId = selectedYearIds ? selectedYearIds[0] : (dbJson.years[0]?.id || null);
+                await loadData(targetFocusId);
+                setImportYearSelectModal({ show: false, json: null, years: [] });
+            } catch (err) {
+                alert("❌ 匯入失敗：" + err.message);
+            } finally {
+                setLoading(false);
+            }
+        }}
+    />
+)}
                 </div>
             );
         };
