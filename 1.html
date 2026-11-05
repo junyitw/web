@@ -1752,22 +1752,29 @@ function printCheckinSignSheet() {
     }
 
     function onGlobalYearInputChange() {
-      const yearInput = document.getElementById('globalAdYear');
-      const val = parseInt(yearInput?.value, 10);
-      if (!val || val < 1900 || val > 2100) return;
+  const yearInput = document.getElementById('globalAdYear');
+  const val = parseInt(yearInput?.value, 10);
+  if (!val || val < 1900 || val > 2100) return;
 
-      currentAdYear = val;
-      const targetMonth = parseInt(document.getElementById('globalMonth')?.value, 10) || 9;
-      updateSemesterStringByYear(currentAdYear, targetMonth);
+  currentAdYear = val;
+  const targetMonth = parseInt(document.getElementById('globalMonth')?.value, 10) || 9;
+  
+  // 1. 同步全域月份與學年度字串
+  activeMonth = targetMonth;
+  updateSemesterStringByYear(currentAdYear, targetMonth);
 
-      schoolTeachers.forEach(t => {
-        t.monthsData = {};
-        t.days = buildMonthlyDaysForTeacher(t, targetMonth);
-      });
+  // 2. 重新產生或切換至目標月份的排課（不清空既有 monthsData 快取）
+  schoolTeachers.forEach(t => {
+    if (!t.monthsData) t.monthsData = {};
+    t.days = buildMonthlyDaysForTeacher(t, targetMonth);
+  });
 
-      renderAll();
-      showToast(`已切換計算年份為西元 ${currentAdYear} 年 (${currentTaiwanYear}學年度)！`, 'info');
-    }
+  // 3. 重繪畫面並同步存檔
+  renderAll();
+  saveToBrowserStorage();
+
+  showToast(`已切換計算年份為西元 ${currentAdYear} 年 (${currentTaiwanYear}學年度)！`, 'info');
+}
 
     function getMonthDateHeaders(month, daysBefore = customDaysBefore, daysAfter = customDaysAfter) {
       const dates = [];
