@@ -2297,7 +2297,30 @@ const AdminDashboard = ({ onLogout, onViewClass, onViewStudent, userRole }) => {
             };
 
             const selectedYear = useMemo(() => years.find(y => y.id === selectedYearId), [years, selectedYearId]);
+// ✅ 新增：跨學年全校學生搜尋計算
+const filteredStudents = useMemo(() => {
+    if (!searchTerm.trim()) return [];
+    const query = searchTerm.trim().toLowerCase();
+    const results = [];
 
+    years.forEach(year => {
+        (year.classes || []).forEach(cls => {
+            (cls.students || []).forEach(student => {
+                if (student.name && student.name.toLowerCase().includes(query)) {
+                    results.push({
+                        yearId: year.id,
+                        yearName: year.name,
+                        classId: cls.id,
+                        className: `${year.name} - ${cls.name}`,
+                        student: student
+                    });
+                }
+            });
+        });
+    });
+
+    return results;
+}, [years, searchTerm]);
             // ✅ 當切換選取學年時，背景載入該學年各班的更新時間
             useEffect(() => {
                 if (!selectedYearId || !selectedYear || !selectedYear.classes) return;
