@@ -3407,7 +3407,7 @@ const handleUpdateSubject = (idx, updated) => {
                                     </div>
                                 </div>
                             )}
-                            {viewMode === 'editor' && currentStudentIdx !== -1 && (
+                            {viewMode === 'editor' && currentStudentIdx !== -1 && data.students[currentStudentIdx] && (
                                 <div className="max-w-5xl mx-auto animate-in zoom-in-95 duration-300 pb-20">
                                     <header className="flex justify-between items-end mb-6 bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
                                         <div className="flex gap-10">
