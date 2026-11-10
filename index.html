@@ -631,21 +631,23 @@ async batchSaveClassAndSyncYear(yearId, classId, classData) {
             }
 
             const currentYearData = yearDoc.data();
-            const updatedClasses = (currentYearData.classes || []).map(c => {
-                if (c.id === classId) {
-                    return {
-                        id: c.id,
-                        name: clsName,
-                        mentor: mentorName,
-                        settings: {
-                            className: clsName,
-                            mentor: mentorName
-                        },
-                        students: minimalStudents
-                    };
-                }
-                return c;
-            });
+            // 請替換 batchSaveClassAndSyncYear 內的 updatedClasses 區塊：
+const updatedClasses = (currentYearData.classes || []).map(c => {
+    if (c.id === classId) {
+        return {
+            id: c.id,
+            name: clsName,
+            mentor: mentorName,
+            _lastUpdated: updatedClassData._lastUpdated, // ✅ 新增：同步記錄各班最近更新時間
+            settings: {
+                className: clsName,
+                mentor: mentorName
+            },
+            students: minimalStudents
+        };
+    }
+    return c;
+});
 
             // 寫入子文件完整內容
             transaction.set(classRef, updatedClassData);
@@ -2248,7 +2250,7 @@ const ImportYearSelectModal = ({ availableYears, onConfirm, onCancel, loading })
         </div>
     );
 };
-        const AdminDashboard = ({ onLogout, onViewClass, onViewStudent, userRole }) => {
+const AdminDashboard = ({ onLogout, onViewClass, onViewStudent, userRole }) => {
             const [years, setYears] = useState([]);
             const [selectedYearId, setSelectedYearId] = useState('');
             const [loading, setLoading] = useState(true);
@@ -2266,12 +2268,14 @@ const ImportYearSelectModal = ({ availableYears, onConfirm, onCancel, loading })
             const [processingYear, setProcessingYear] = useState(false);
             const [deletingYear, setDeletingYear] = useState(false);
             const [deletingStudentId, setDeletingStudentId] = useState(null);
-// 新增此行 State 宣告：
-const [importYearSelectModal, setImportYearSelectModal] = useState({
-    show: false,
-    json: null,
-    years: []
-});
+            const [importYearSelectModal, setImportYearSelectModal] = useState({
+                show: false,
+                json: null,
+                years: []
+            });
+            // ✅ 各班級最近更新時間快取（正確放在元件內部）
+            const [classUpdatedTimes, setClassUpdatedTimes] = useState({});
+
             const isReadOnly = userRole === UserRole.VIEWER;
 
             useEffect(() => { loadData(); }, []);
@@ -2294,21 +2298,39 @@ const [importYearSelectModal, setImportYearSelectModal] = useState({
 
             const selectedYear = useMemo(() => years.find(y => y.id === selectedYearId), [years, selectedYearId]);
 
-            const filteredStudents = useMemo(() => {
-                if (!searchTerm.trim()) return [];
-                const term = searchTerm.toLowerCase();
-                const results = [];
-                years.forEach(year => {
-                    (year.classes || []).forEach(cls => {
-                        (cls.students || []).forEach(std => {
-                            if (std.name.includes(term) || std.no.includes(term)) {
-                                results.push({ student: std, classId: cls.id, className: cls.name, yearId: year.id });
+            // ✅ 當切換選取學年時，背景載入該學年各班的更新時間
+            useEffect(() => {
+                if (!selectedYearId || !selectedYear || !selectedYear.classes) return;
+
+                let isMounted = true;
+                const fetchClassTimes = async () => {
+                    const times = {};
+                    for (const cls of selectedYear.classes) {
+                        if (cls._lastUpdated) {
+                            times[cls.id] = cls._lastUpdated;
+                        } else {
+                            try {
+                                const fullClass = await cloudService.getClassData(selectedYearId, cls.id);
+                                if (fullClass && fullClass._lastUpdated) {
+                                    times[cls.id] = fullClass._lastUpdated;
+                                } else {
+                                    times[cls.id] = "尚無更新紀錄";
+                                }
+                            } catch (e) {
+                                times[cls.id] = "讀取失敗";
                             }
-                        });
-                    });
-                });
-                return results;
-            }, [years, searchTerm]);
+                        }
+                    }
+                    if (isMounted) {
+                        setClassUpdatedTimes(prev => ({ ...prev, [selectedYearId]: times }));
+                    }
+                };
+
+                fetchClassTimes();
+                return () => { isMounted = false; };
+            }, [selectedYearId, selectedYear]);            
+
+
 
             const handleAddYear = async () => {
                 if (!newYearName.trim()) return;
@@ -2512,27 +2534,78 @@ const [importYearSelectModal, setImportYearSelectModal] = useState({
 
                         {loading ? <div className="text-center py-20 text-slate-400 animate-pulse">資料同步中，請稍候...</div> : (selectedYear && selectedYear.classes) ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {selectedYear.classes.map((cls) => (
-                                    <div key={cls.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between hover:shadow-xl transition-all group border-t-4 border-t-indigo-500">
-                                        <div>
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div className="flex items-center gap-2"><h3 className="text-xl font-bold text-slate-900">{cls.name}</h3>{!isReadOnly && <button onClick={() => setEditModal({show: true, classId: cls.id, name: cls.name, mentor: (cls.settings || {}).mentor})} className="text-slate-300 hover:text-indigo-600 transition" title="編輯班級名稱或導師"><Pencil size={14} /></button>}</div>
-                                                <span className="bg-indigo-50 text-indigo-600 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">{(cls.students || []).length} 名學生</span>
-                                            </div>
-                                            <div className="flex items-center gap-2 text-sm text-slate-500 mb-4 bg-slate-50 p-2 rounded-lg"><Users size={14} className="text-slate-400" /><span className="font-medium">導師：{(cls.settings || {}).mentor || "未指定"}</span></div>
-                                        </div>
-                                        <div className="space-y-2 mt-auto pt-4 border-t border-slate-100">
-                                            <button onClick={() => onViewClass(selectedYearId, cls.id)} className="w-full bg-slate-900 text-white hover:bg-slate-800 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition shadow-md"><ChevronRight size={16} /> 進入全班工作台 (矩陣/列印)</button>
-                                            {!isReadOnly && (
-                                                <div className="flex gap-2">
-                                                    <button onClick={() => setImportModal({show: true, classId: cls.id, className: cls.name})} className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition"><UserPlus size={14} /> 匯入名單</button>
-                                                    <button onClick={() => setStudentListModal({show: true, classId: cls.id, className: cls.name, students: cls.students || []})} className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition"><Users size={14} /> 刪減學生</button>
-                                                    <button onClick={() => setResetModal({show: true, username: cls.id})} className="w-12 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-xl flex items-center justify-center transition" title="重設導師密碼"><Key size={16} /></button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
+                                {/* 原有班級卡片渲染區塊：請替換為以下程式碼 */}
+{selectedYear.classes.map((cls) => {
+    const updateTimeStr = (classUpdatedTimes[selectedYearId] && classUpdatedTimes[selectedYearId][cls.id]) 
+        || cls._lastUpdated 
+        || "載入中...";
+    const isNeverUpdated = updateTimeStr === "尚無更新紀錄";
+
+    return (
+        <div key={cls.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between hover:shadow-xl transition-all group border-t-4 border-t-indigo-500">
+            <div>
+                <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-2">
+                        <h3 className="text-xl font-bold text-slate-900">{cls.name}</h3>
+                        {!isReadOnly && (
+                            <button onClick={() => setEditModal({show: true, classId: cls.id, name: cls.name, mentor: (cls.settings || {}).mentor})} className="text-slate-300 hover:text-indigo-600 transition" title="編輯班級名稱或導師">
+                                <Pencil size={14} />
+                            </button>
+                        )}
+                    </div>
+                    <span className="bg-indigo-50 text-indigo-600 text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
+                        {(cls.students || []).length} 名學生
+                    </span>
+                </div>
+
+                <div className="space-y-2 mb-4">
+                    {/* 導師資訊 */}
+                    <div className="flex items-center gap-2 text-sm text-slate-600 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                        <Users size={14} className="text-slate-400" />
+                        <span className="font-medium">導師：{(cls.settings || {}).mentor || "未指定"}</span>
+                    </div>
+
+                    {/* ✅ 最近更新時間標示 */}
+                    <div className={`flex items-center justify-between text-xs p-2 rounded-xl border transition-colors ${
+                        isNeverUpdated 
+                            ? 'bg-amber-50/60 border-amber-100 text-amber-700' 
+                            : 'bg-emerald-50/60 border-emerald-100 text-emerald-800'
+                    }`}>
+                        <div className="flex items-center gap-1.5 font-bold">
+                            <Activity size={13} className={isNeverUpdated ? "text-amber-500" : "text-emerald-500"} />
+                            <span>最近更新：</span>
+                        </div>
+                        <span className="font-mono font-medium text-[11px] truncate max-w-[140px]" title={updateTimeStr}>
+                            {updateTimeStr}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="space-y-2 mt-auto pt-4 border-t border-slate-100">
+                <button onClick={() => onViewClass(selectedYearId, cls.id)} className="w-full bg-slate-900 text-white hover:bg-slate-800 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition shadow-md">
+                    <ChevronRight size={16} /> 進入全班工作台 (矩陣/列印)
+                </button>
+                {!isReadOnly && (
+                    <div className="flex gap-2">
+                        <button onClick={() => setImportModal({show: true, classId: cls.id, className: cls.name})} className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition">
+                            <UserPlus size={14} /> 匯入名單
+                        </button>
+                        <button onClick={() => setStudentListModal({show: true, classId: cls.id, className: cls.name, students: cls.students || []})} className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition">
+                            <Users size={14} /> 刪減學生
+                        </button>
+                        <button onClick={() => setResetModal({show: true, username: cls.id})} className="w-12 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-xl flex items-center justify-center transition" title="重設導師密碼">
+                            <Key size={16} />
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+})}
+
+
+
                             </div>
                         ) : <div className="flex flex-col items-center justify-center py-20 text-slate-400"><AlertCircle size={48} className="mb-4 opacity-20" /><p>目前尚無任何學期資料，請點擊上方綠色「匯入舊備份 JSON」按鈕匯入資料。</p></div>}
                     </main>
